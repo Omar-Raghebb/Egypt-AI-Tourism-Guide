@@ -1,0 +1,162 @@
+{
+  "description": "Bilingual retrieval evaluation for the enhanced RehlaAI knowledge base. Ground truth values were copied from the actual KB records (28 places, 9 cities, 9 activities, 3 planning rules, 6 itineraries, no transportation routes).",
+  "top_k": 4,
+  "cases": [
+    {
+      "id": "en_price_giza",
+      "query": "What is the ticket price of the Giza Pyramids?",
+      "intent": "price",
+      "relevant_place_ids": ["giza_pyramids_001"]
+    },
+    {
+      "id": "ar_price_giza",
+      "query": "سعر تذكرة أهرامات الجيزة؟",
+      "intent": "price",
+      "relevant_place_ids": ["giza_pyramids_001"]
+    },
+    {
+      "id": "en_price_karnak",
+      "query": "What is the ticket price of Karnak Temple?",
+      "intent": "price",
+      "relevant_place_ids": ["karnak_001"]
+    },
+    {
+      "id": "ar_price_karnak",
+      "query": "كم سعر تذاكر معبد الكرنك؟",
+      "intent": "price",
+      "relevant_place_ids": ["karnak_001"]
+    },
+    {
+      "id": "en_price_gem",
+      "query": "How much are tickets to the Grand Egyptian Museum?",
+      "intent": "price",
+      "relevant_place_ids": ["gem_001"]
+    },
+    {
+      "id": "en_hours_karnak",
+      "query": "What are the opening hours of Karnak Temple?",
+      "intent": "hours",
+      "relevant_place_ids": ["karnak_001"]
+    },
+    {
+      "id": "ar_hours_karnak",
+      "query": "ما مواعيد زيارة معبد الكرنك؟",
+      "intent": "hours",
+      "relevant_place_ids": ["karnak_001"]
+    },
+    {
+      "id": "en_hours_gem",
+      "query": "When does the Grand Egyptian Museum open?",
+      "intent": "hours",
+      "relevant_place_ids": ["gem_001"]
+    },
+    {
+      "id": "en_hours_philae",
+      "query": "What are the visiting hours for Philae Temple?",
+      "intent": "hours",
+      "relevant_place_ids": ["philae_001"]
+    },
+    {
+      "id": "en_coords_giza",
+      "query": "What are the coordinates of the Giza Pyramids?",
+      "intent": "coordinates",
+      "relevant_place_ids": ["giza_pyramids_001"]
+    },
+    {
+      "id": "ar_coords_abusimbel",
+      "query": "ما هي إحداثيات معبد أبو سمبل؟",
+      "intent": "coordinates",
+      "relevant_place_ids": ["abu_simbel_001"]
+    },
+    {
+      "id": "en_access_valleykings",
+      "query": "Is the Valley of the Kings accessible for wheelchair users?",
+      "intent": "accessibility",
+      "relevant_place_ids": ["valley_kings_001"]
+    },
+    {
+      "id": "en_transport_abusimbel",
+      "query": "How do I get to Abu Simbel from Aswan?",
+      "intent": "transportation",
+      "relevant_place_ids": ["abu_simbel_001"]
+    },
+    {
+      "id": "en_transport_general",
+      "query": "What transportation options are available for tourists in Egypt?",
+      "intent": "transportation",
+      "relevant_place_ids": ["transportation_routes_empty"]
+    },
+    {
+      "id": "en_activities_luxor",
+      "query": "What activities are available in Luxor?",
+      "intent": "activities",
+      "relevant_place_ids": ["act_hot_air_balloon", "act_nile_cruise"]
+    },
+    {
+      "id": "ar_activities_aswan",
+      "query": "أفضل الأنشطة في أسوان",
+      "intent": "activities",
+      "relevant_place_ids": ["act_felucca", "act_nile_cruise"]
+    },
+    {
+      "id": "en_family_giza",
+      "query": "Which attractions are suitable for families in Giza?",
+      "intent": "age_suitability",
+      "relevant_place_ids": ["giza_pyramids_001", "gem_001"]
+    },
+    {
+      "id": "en_itin_cairo_3d",
+      "query": "Plan a 3-day itinerary in Cairo",
+      "intent": "itinerary",
+      "relevant_place_ids": ["it_cairo_history_3d"]
+    },
+    {
+      "id": "en_itin_giza_family",
+      "query": "Suggest a one-day family trip to Giza",
+      "intent": "itinerary",
+      "relevant_place_ids": ["it_giza_family_1d"]
+    },
+    {
+      "id": "en_itin_luxor_3d",
+      "query": "Plan a 3-day trip to Luxor",
+      "intent": "itinerary",
+      "relevant_place_ids": ["it_luxor_3d"]
+    },
+    {
+      "id": "ar_itin_cairo",
+      "query": "خطة رحلة ثلاثة أيام في القاهرة",
+      "intent": "itinerary",
+      "relevant_place_ids": ["it_cairo_history_3d"]
+    },
+    {
+      "id": "en_recommend_cairo",
+      "query": "What are the best places to visit in Cairo?",
+      "intent": "recommendation",
+      "relevant_place_ids": ["city_cairo"]
+    },
+    {
+      "id": "en_def_abusimbel",
+      "query": "Tell me about Abu Simbel",
+      "intent": "definition",
+      "relevant_place_ids": ["abu_simbel_001"]
+    },
+    {
+      "id": "en_def_khan",
+      "query": "Tell me about Khan el-Khalili bazaar",
+      "intent": "definition",
+      "relevant_place_ids": ["khan_khalili_001"]
+    },
+    {
+      "id": "en_rule_abusimbel",
+      "query": "What is the planning rule for visiting Abu Simbel?",
+      "intent": "definition",
+      "relevant_place_ids": ["rule_001"]
+    },
+    {
+      "id": "en_multi_museum",
+      "query": "What are the ticket prices and opening hours of the Egyptian Museum?",
+      "intent": "price",
+      "relevant_place_ids": ["egyptian_museum_001"]
+    }
+  ]
+}

@@ -1,0 +1,191 @@
+{
+  "description": "Bilingual (EN/AR) evaluation dataset built from the actual data/egypt_landmarks_kb content. Ground truths are exact values copied from the source JSON records - nothing is invented. 'relevant_doc_ids' list doc_id prefixes that a correct retrieval should surface (prefix match on doc_id).",
+  "cases": [
+    {
+      "id": "city_giza_en",
+      "query": "What are the best places to visit in Giza?",
+      "intent": "semantic",
+      "relevant_place_ids": ["giza_pyramids", "grand_egyptian_museum"]
+    },
+    {
+      "id": "city_luxor_ar",
+      "query": "ما هي الأماكن التي يمكن زيارتها في الأقصر؟",
+      "intent": "semantic",
+      "relevant_place_ids": ["luxor_temple", "karnak_temple", "valley_of_the_kings"]
+    },
+    {
+      "id": "city_aswan_ar",
+      "query": "ما هي أفضل الأماكن في أسوان؟",
+      "intent": "semantic",
+      "relevant_place_ids": ["abu_simbel"]
+    },
+    {
+      "id": "place_history_en",
+      "query": "Who built the Pyramids of Giza and when?",
+      "intent": "definition",
+      "relevant_doc_ids": ["giza_pyramids::overview", "giza_pyramids::history"],
+      "relevant_place_ids": ["giza_pyramids"]
+    },
+    {
+      "id": "place_history_ar",
+      "query": "من بني معبد الأقصر؟",
+      "intent": "definition",
+      "relevant_doc_ids": ["luxor_temple::overview", "luxor_temple::history"],
+      "relevant_place_ids": ["luxor_temple"]
+    },
+    {
+      "id": "price_giza_en",
+      "query": "What is the ticket price of the Pyramids of Giza for foreign adults?",
+      "intent": "price",
+      "relevant_doc_ids": ["giza_pyramids::practical", "giza_pyramids::faq"],
+      "relevant_place_ids": ["giza_pyramids"],
+      "exact_answers": [{"field": "ticket_price.general_plateau_entry_foreign_adult", "value": 700, "place_id": "giza_pyramids"}]
+    },
+    {
+      "id": "price_giza_ar",
+      "query": "كم سعر تذكرة الدخول لأهرامات الجيزة؟",
+      "intent": "price",
+      "relevant_doc_ids": ["giza_pyramids::practical", "giza_pyramids::faq"],
+      "relevant_place_ids": ["giza_pyramids"],
+      "exact_answers": [{"field": "ticket_price.general_plateau_entry_foreign_adult", "value": 700, "place_id": "giza_pyramids"}]
+    },
+    {
+      "id": "price_giza_egyptian_en",
+      "query": "How much do Egyptian nationals pay to enter the Giza plateau?",
+      "intent": "price",
+      "relevant_doc_ids": ["giza_pyramids::practical"],
+      "relevant_place_ids": ["giza_pyramids"],
+      "exact_answers": [{"field": "ticket_price.egyptian_national_general_entry", "value": 150, "place_id": "giza_pyramids"}]
+    },
+    {
+      "id": "price_gem_en",
+      "query": "What is the entry fee for the Grand Egyptian Museum?",
+      "intent": "price",
+      "relevant_doc_ids": ["grand_egyptian_museum::practical", "grand_egyptian_museum::faq"],
+      "relevant_place_ids": ["grand_egyptian_museum"]
+    },
+    {
+      "id": "hours_giza_en",
+      "query": "What are the opening hours of the Pyramids of Giza?",
+      "intent": "hours",
+      "relevant_doc_ids": ["giza_pyramids::practical"],
+      "relevant_place_ids": ["giza_pyramids"],
+      "exact_answers": [{"field": "opening_hours.summer_may_to_september", "value": "07:00–19:00 daily (Giza Plateau general entry)", "place_id": "giza_pyramids"}]
+    },
+    {
+      "id": "hours_giza_ar",
+      "query": "ما هي مواعيد فتح أهرامات الجيزة؟",
+      "intent": "hours",
+      "relevant_doc_ids": ["giza_pyramids::practical"],
+      "relevant_place_ids": ["giza_pyramids"]
+    },
+    {
+      "id": "hours_karnak_en",
+      "query": "When does Karnak Temple open and close?",
+      "intent": "hours",
+      "relevant_doc_ids": ["karnak_temple::practical"],
+      "relevant_place_ids": ["karnak_temple"]
+    },
+    {
+      "id": "activity_luxor_en",
+      "query": "What can I see and do at Karnak Temple?",
+      "intent": "activities",
+      "relevant_doc_ids": ["karnak_temple::overview", "karnak_temple::facts", "karnak_temple::faq"],
+      "relevant_place_ids": ["karnak_temple"]
+    },
+    {
+      "id": "activity_valley_ar",
+      "query": "ما هي الأنشطة المتاحة في وادي الملوك؟",
+      "intent": "activities",
+      "relevant_doc_ids": ["valley_of_the_kings::overview", "valley_of_the_kings::faq"],
+      "relevant_place_ids": ["valley_of_the_kings"]
+    },
+    {
+      "id": "accessibility_giza_en",
+      "query": "Is the Giza Plateau accessible for wheelchair users?",
+      "intent": "accessibility",
+      "relevant_doc_ids": ["giza_pyramids::accessibility"],
+      "relevant_place_ids": ["giza_pyramids"]
+    },
+    {
+      "id": "transportation_giza_en",
+      "query": "What is the nearest airport to the Pyramids of Giza and how do I get there from Cairo?",
+      "intent": "transportation",
+      "relevant_doc_ids": ["giza_pyramids::accessibility", "giza_pyramids::faq"],
+      "relevant_place_ids": ["giza_pyramids"]
+    },
+    {
+      "id": "transportation_abu_simbel_ar",
+      "query": "كيف أصل إلى أبو سمبل من أسوان؟",
+      "intent": "transportation",
+      "relevant_doc_ids": ["abu_simbel::accessibility", "abu_simbel::faq"],
+      "relevant_place_ids": ["abu_simbel"]
+    },
+    {
+      "id": "coordinates_giza_en",
+      "query": "What are the exact coordinates of the Giza Pyramids?",
+      "intent": "coordinates",
+      "relevant_doc_ids": ["giza_pyramids::overview"],
+      "relevant_place_ids": ["giza_pyramids"],
+      "exact_answers": [{"field": "location.coordinates.latitude", "value": 29.9792, "place_id": "giza_pyramids"}]
+    },
+    {
+      "id": "best_time_abu_simbel_en",
+      "query": "When is the best time to visit Abu Simbel?",
+      "intent": "semantic",
+      "relevant_doc_ids": ["abu_simbel::practical", "abu_simbel::faq"],
+      "relevant_place_ids": ["abu_simbel"]
+    },
+    {
+      "id": "indoor_valley_en",
+      "query": "Is visiting the tombs in the Valley of the Kings indoors?",
+      "intent": "indoor_outdoor",
+      "relevant_doc_ids": ["valley_of_the_kings::overview", "valley_of_the_kings::faq"],
+      "relevant_place_ids": ["valley_of_the_kings"]
+    },
+    {
+      "id": "missing_data_luxor_temple_price_ar",
+      "query": "كم سعر تذكرة الدخول لمعبد الأقصر؟",
+      "intent": "price",
+      "relevant_doc_ids": ["luxor_temple::practical", "luxor_temple::faq"],
+      "relevant_place_ids": ["luxor_temple"],
+      "note": "Ground truth comes from luxor_temple/info.json; check its ticket_price field."
+    },
+    {
+      "id": "age_suitability_giza_en",
+      "query": "Is the Grand Egyptian Museum suitable for young children?",
+      "intent": "age_suitability",
+      "relevant_doc_ids": ["grand_egyptian_museum::faq", "grand_egyptian_museum::accessibility"],
+      "relevant_place_ids": ["grand_egyptian_museum"],
+      "note": "Age suitability is not a dedicated field in the KB - the system must say the information is not available rather than guessing."
+    },
+    {
+      "id": "itinerary_missing_en",
+      "query": "Can you plan a full one-week itinerary across Egypt including hotels and flight bookings?",
+      "intent": "semantic",
+      "relevant_place_ids": [],
+      "note": "Itineraries with hotels/flights do not exist in the KB - a correct system states insufficient evidence."
+    },
+    {
+      "id": "semantic_khufu_en",
+      "query": "How tall was the Great Pyramid originally?",
+      "intent": "semantic",
+      "relevant_doc_ids": ["giza_pyramids::history"],
+      "relevant_place_ids": ["giza_pyramids"]
+    },
+    {
+      "id": "semantic_sphinx_en",
+      "query": "Tell me about the Great Sphinx.",
+      "intent": "semantic",
+      "relevant_doc_ids": ["giza_pyramids::overview", "giza_pyramids::facts"],
+      "relevant_place_ids": ["giza_pyramids"]
+    },
+    {
+      "id": "semantic_unesco_en",
+      "query": "Are the Luxor temples UNESCO World Heritage sites?",
+      "intent": "semantic",
+      "relevant_doc_ids": ["luxor_temple::accessibility", "karnak_temple::accessibility"],
+      "relevant_place_ids": ["luxor_temple", "karnak_temple"]
+    }
+  ]
+}
