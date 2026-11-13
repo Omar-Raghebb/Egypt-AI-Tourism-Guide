@@ -194,10 +194,18 @@ class QueryProcessor:
         """Extract place names, city names, and category hints from a query."""
         normalized = normalize_query(query)
         detected_places: List[str] = []
+        matched_patterns: Dict[str, List[str]] = {}
         for pid, pattern, original in self._name_patterns:
             if pattern.search(normalized):
                 if pid not in detected_places:
                     detected_places.append(pid)
+                    matched_patterns[pid] = []
+                if original not in matched_patterns[pid]:
+                    matched_patterns[pid].append(original)
+
+        detected_places = self._filter_generic_matches(
+            normalized, detected_places, matched_patterns
+        )
 
         detected_city = self._detect_city(normalized)
 
@@ -216,6 +224,53 @@ class QueryProcessor:
             "city": detected_city,
             "filters": filters,
         }
+
+    # Generic tourism nouns that many records share as keywords — a match on
+    # ONLY one of these is not evidence that the user meant that specific
+    # place ("opening hours of Karnak Temple" must not pull Philae).
+    _GENERIC_PLACE_WORDS = {
+        "temple", "temples", "museum", "mosque", "complex", "citadel",
+        "bazaar", "market", "street", "church", "synagogue", "palace",
+        "village", "island", "bay", "beach", "dam", "fort", "castle",
+        "towers", "pyramids", "site", "sites",
+        "معبد", "معابد", "متحف", "مسجد", "قصر", "سوق", "شارع",
+    }
+
+    @classmethod
+    def _filter_generic_matches(
+        cls,
+        normalized: str,
+        detected_places: List[str],
+        matched_patterns: Dict[str, List[str]],
+    ) -> List[str]:
+        """Keep places matched by a distinctive pattern; drop keyword-only hits.
+
+        A pattern is *distinctive* when it contains at least one significant
+        token (not a generic tourism noun, length >= 4) that also appears in
+        the query. Places matched only through generic nouns are kept only
+        when NO distinctive match exists at all (e.g. "which temples are in
+        Luxor?" legitimately matches all temples).
+        """
+        if not detected_places:
+            return detected_places
+
+        normalized_lower = (normalized or "").lower()
+
+        def _is_distinctive(pattern_text: str) -> bool:
+            tokens = re.split(r"[\s/،,\-–]+", pattern_text or "")
+            for token in tokens:
+                token = token.strip().lower()
+                if len(token) < 4 or token in cls._GENERIC_PLACE_WORDS:
+                    continue
+                if token in normalized_lower:
+                    return True
+            return False
+
+        strong = [
+            pid for pid in detected_places
+            if any(_is_distinctive(text) for text in matched_patterns.get(pid, []))
+        ]
+        return strong if strong else detected_places
 
     def _detect_city(self, normalized: str) -> Optional[str]:
         # Known Egyptian cities: first from the cities collection (enhanced KB),

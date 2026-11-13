@@ -105,12 +105,69 @@ class AnswerValidator:
             warnings.append("no_evidence")
             return ValidationResult(OUTCOME_INSUFFICIENT, warnings)
 
-        # 3) answer much longer than evidence (possible hallucinated padding)
+        # 3) internal machinery leaking into the user answer
+        leak_warnings = self._structure_leak_warnings(answer)
+        warnings.extend(leak_warnings)
+
+        # 4) answer much longer than evidence (possible hallucinated padding)
         if len(answer) > 8 * max(len(context_text), 1):
             warnings.append("answer_much_longer_than_evidence")
 
-        outcome = OUTCOME_INVALID if unsupported else OUTCOME_VALID
+        # 5) language consistency (internal note only; never blocks a useful
+        #    answer by itself — wrong-language output is a quality defect,
+        #    not a fabrication)
+        lang_warnings = self._language_warnings(answer, language)
+        warnings.extend(lang_warnings)
+
+        # leaks and language issues downgrade the outcome one step (never to
+        # invalid) so callers log and qualify instead of discarding the answer
+        if unsupported:
+            outcome = OUTCOME_INVALID
+        elif leak_warnings:
+            outcome = OUTCOME_INSUFFICIENT
+        elif lang_warnings:
+            outcome = OUTCOME_PARTIAL
+        else:
+            outcome = OUTCOME_VALID
         return ValidationResult(outcome, warnings)
+
+    # ------------------------------------------------------------------
+    _LEAK_PATTERNS = [
+        (r"\{['\"]|```json|\"place_id\"\s*:", "raw_json"),
+        (r"\b[a-z][a-z0-9]+_[0-9]{3}\b", "internal_record_id"),
+        (r"\bdoc_[a-f0-9]{6,}\b", "internal_doc_id"),
+        (r"retrieval_score|chunk_id|traceback|exception\b", "debug_metadata"),
+        (r"provider_error|api[_ ]error|status[_ ]code", "debug_metadata"),
+    ]
+
+    def _structure_leak_warnings(self, answer: str) -> List[str]:
+        """Detect raw JSON, internal IDs, or debug text in the answer."""
+        found: List[str] = []
+        for pattern, code in self._LEAK_PATTERNS:
+            if re.search(pattern, answer, re.IGNORECASE):
+                if code not in found:
+                    found.append(code)
+        return [f"leak:{code}" for code in found]
+
+    _AR_RE = re.compile(r"[\u0600-\u06FF]")
+    _LATIN_RE = re.compile(r"[A-Za-z]")
+
+    def _language_warnings(self, answer: str, language: str) -> List[str]:
+        """Flag answers whose script contradicts the requested language.
+
+        Numbers and short proper nouns are unavoidable; we require the
+        dominant script to match. Only applies when the request is language-
+        specific (en/ar).
+        """
+        if language not in ("en", "ar"):
+            return []
+        arabic = len(self._AR_RE.findall(answer or ""))
+        latin = len(self._LATIN_RE.findall(answer or ""))
+        if language == "ar" and latin > arabic and latin > 20:
+            return ["language_mismatch:ar_request_latin_answer"]
+        if language == "en" and arabic > latin and arabic > 20:
+            return ["language_mismatch:en_request_arabic_answer"]
+        return []
 
     @staticmethod
     def _sentence_containing(text: str, token: str) -> Optional[str]:

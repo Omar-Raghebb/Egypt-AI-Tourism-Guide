@@ -136,6 +136,7 @@ CSS = f"""
     .chip-verified {{ background: #e6f2e6; color: #2e6b34; border: 1px solid #bcd9bd; }}
     .chip-unverified {{ background: #fdf3d7; color: #8a6d1a; border: 1px solid #e8d491; }}
     .chip-mixed {{ background: #e8f0fb; color: #2d5c9e; border: 1px solid #b9d0ee; }}
+    .chip-info {{ background: #eef1f4; color: #4a5a68; border: 1px solid #ccd6dd; }}
     .note-warn {{
         background: #fdf6e3; border: 1px solid #ecd9a0; color: #6b5313;
         border-radius: 10px; padding: 8px 12px; font-size: 13px; margin: 6px 0;
@@ -225,6 +226,7 @@ VERIFICATION_CHIP = {
     "verified": ('✅ Verified', "chip-verified"),
     "mixed": ('🔶 Partly verified', "chip-mixed"),
     "unverified": ('⚠️ Not fully verified', "chip-unverified"),
+    "missing": ('ℹ️ Not in knowledge base', "chip-info"),
 }
 
 

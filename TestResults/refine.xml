@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="1" failures="3" skipped="0" tests="31" time="24.353" timestamp="2026-11-13T14:35:42.708551+02:00" hostname="Omar-Ragheb"><testcase classname="tests.test_output_refinement.TestKarnakSourceRelevance" name="test_karnak_hours_sources_are_karnak_only" time="18.669" /><testcase classname="tests.test_output_refinement.TestKarnakSourceRelevance" name="test_karnak_hours_answer_does_not_render_other_temples" time="0.030" /><testcase classname="tests.test_output_refinement.TestKarnakSourceRelevance" name="test_karnak_query_does_not_retrieve_distractors" time="0.021" /><testcase classname="tests.test_output_refinement.TestItineraryCompleteness" name="test_cairo_itinerary_has_all_three_days" time="0.035" /><testcase classname="tests.test_output_refinement.TestItineraryCompleteness" name="test_itinerary_day_format" time="0.031" /><testcase classname="tests.test_output_refinement.TestItineraryCompleteness" name="test_family_note_only_when_supported" time="0.029" /><testcase classname="tests.test_output_refinement.TestItineraryCompleteness" name="test_family_note_present_for_family_itinerary" time="0.032" /><testcase classname="tests.test_output_refinement.TestNoInternalIds" name="test_luxor_answer_has_no_internal_ids[What are the best places to visit in Luxor?]" time="0.033" /><testcase classname="tests.test_output_refinement.TestNoInternalIds" name="test_luxor_answer_has_no_internal_ids[\u0645\u0627 \u0647\u064a \u0623\u0641\u0636\u0644 \u0627\u0644\u0623\u0645\u0627\u0643\u0646 \u0641\u064a \u0627\u0644\u0623\u0642\u0635\u0631\u061f]" time="0.027" /><testcase classname="tests.test_output_refinement.TestNoInternalIds" name="test_luxor_answer_renders_place_names" time="0.022" /><testcase classname="tests.test_output_refinement.TestUnavailableAnswer" name="test_child_price_unavailable_contract" time="0.023" /><testcase classname="tests.test_output_refinement.TestUnavailableAnswer" name="test_unavailable_verification_message_is_plain" time="0.022" /><testcase classname="tests.test_output_refinement.TestConflictingValues" name="test_giza_conflict_is_qualified" time="0.024" /><testcase classname="tests.test_output_refinement.TestConflictingValues" name="test_giza_sources_relevant" time="0.023" /><testcase classname="tests.test_output_refinement.TestLanguageConsistency" name="test_arabic_answer_uses_arabic_labels_and_names" time="0.028" /><testcase classname="tests.test_output_refinement.TestLanguageConsistency" name="test_arabic_sources_use_arabic_names" time="0.026" /><testcase classname="tests.test_output_refinement.TestLanguageConsistency" name="test_english_answer_has_no_arabic_labels" time="0.022" /><testcase classname="tests.test_output_refinement.TestPartialEvidence" name="test_hours_known_accessibility_missing" time="0.023"><failure message="AssertionError: assert ('not available' in '**place: temple of hatshepsut (deir el-bahari)**\ncity: luxor\nvisiting hours: 06:00–17:00\nramadan hours: may be sho... full ai-generated wording is temporarily unavailable, so this answer was assembled directly from the knowledge base.)' or 'not specified' in '**place: temple of hatshepsut (deir el-bahari)**\ncity: luxor\nvisiting hours: 06:00–17:00\nramadan hours: may be sho... full ai-generated wording is temporarily unavailable, so this answer was...&#10;[truncated; full report in element text]">self = &lt;test_output_refinement.TestPartialEvidence object at 0x0000020F9325A6D0&gt;
+client = &lt;starlette.testclient.TestClient object at 0x0000020F95DAFAD0&gt;
+
+    def test_hours_known_accessibility_missing(self, client):
+        body = _answer(
+            client, "What are the opening hours and accessibility of Hatshepsut Temple?"
+        )
+        answer = body["answer"]
+        # the known part is still delivered (useful, not discarded)
+        assert "06:00" in answer
+        # the missing part is honestly marked
+        low = answer.lower()
+&gt;       assert ("not available" in low) or ("not specified" in low)
+E       AssertionError: assert ('not available' in '**place: temple of hatshepsut (deir el-bahari)**\ncity: luxor\nvisiting hours: 06:00–17:00\nramadan hours: may be sho... full ai-generated wording is temporarily unavailable, so this answer was assembled directly from the knowledge base.)' or 'not specified' in '**place: temple of hatshepsut (deir el-bahari)**\ncity: luxor\nvisiting hours: 06:00–17:00\nramadan hours: may be sho... full ai-generated wording is temporarily unavailable, so this answer was assembled directly from the knowledge base.)')
+
+tests\test_output_refinement.py:286: AssertionError</failure></testcase><testcase classname="tests.test_output_refinement.TestNoLeaksAnywhere" name="test_no_raw_json_or_internal_markers[What are the opening hours of Karnak Temple?]" time="0.023" /><testcase classname="tests.test_output_refinement.TestNoLeaksAnywhere" name="test_no_raw_json_or_internal_markers[Plan a 3-day family itinerary in Cairo.]" time="0.022" /><testcase classname="tests.test_output_refinement.TestNoLeaksAnywhere" name="test_no_raw_json_or_internal_markers[What are the best places to visit in Luxor?]" time="0.023" /><testcase classname="tests.test_output_refinement.TestNoLeaksAnywhere" name="test_no_raw_json_or_internal_markers[How much is the ticket price for the Giza Pyramids?]" time="0.023" /><testcase classname="tests.test_output_refinement.TestNoLeaksAnywhere" name="test_no_raw_json_or_internal_markers[\u0645\u0627 \u0647\u064a \u0633\u0627\u0639\u0627\u062a \u0632\u064a\u0627\u0631\u0629 \u0645\u0639\u0628\u062f \u0627\u0644\u0643\u0631\u0646\u0643\u061f]" time="0.026" /><testcase classname="tests.test_output_refinement.TestValidatorStructureChecks" name="test_internal_record_id_flagged" time="0.002" /><testcase classname="tests.test_output_refinement.TestValidatorStructureChecks" name="test_internal_record_id_only_still_detected" time="0.001"><failure message="assert False&#10; +  where False = any(&lt;generator object TestValidatorStructureChecks.test_internal_record_id_only_still_detected.&lt;locals&gt;.&lt;genexpr&gt; at 0x0000020F9CD1FD80&gt;)">self = &lt;test_output_refinement.TestValidatorStructureChecks object at 0x0000020F9325B7D0&gt;
+
+    def test_internal_record_id_only_still_detected(self):
+        validator = AnswerValidator()
+        result = validator.validate(
+            "See karnak_abc for details.", self._context(), language="en"
+        )
+&gt;       assert any(w.startswith("leak:internal_record_id") for w in result.warnings)
+E       assert False
+E        +  where False = any(&lt;generator object TestValidatorStructureChecks.test_internal_record_id_only_still_detected.&lt;locals&gt;.&lt;genexpr&gt; at 0x0000020F9CD1FD80&gt;)
+
+tests\test_output_refinement.py:333: AssertionError</failure></testcase><testcase classname="tests.test_output_refinement.TestValidatorStructureChecks" name="test_raw_json_flagged" time="0.001" /><testcase classname="tests.test_output_refinement.TestValidatorStructureChecks" name="test_clean_answer_not_flagged" time="0.001" /><testcase classname="tests.test_output_refinement.TestValidatorStructureChecks" name="test_language_mismatch_flagged" time="0.001" /><testcase classname="tests.test_output_refinement.TestValidatorStructureChecks" name="test_mixed_verification_qualification" time="0.003" /><testcase classname="tests.test_output_refinement.TestStreamlitRendering" name="test_renders_answer_without_internal_metadata" time="3.571"><error message="failed on setup with &quot;IndexError: list index out of range&quot;">self = &lt;test_output_refinement.TestStreamlitRendering object at 0x0000020F93265910&gt;
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x0000020F95DD8510&gt;
+
+    @pytest.fixture()
+    def streamlit_run(self, monkeypatch):
+        """Run the real streamlit_app with a canned API payload."""
+        canned = {
+            "response_id": "r1", "query": "Q", "answer": "Visiting hours: 07:00-17:00.",
+            "language": "en", "status": "success", "generation_mode": "fallback",
+            "sources": ["Karnak Temple Complex"],
+            "verification": {"status": "unverified", "message": "not fully verified."},
+            "warnings": ["This answer was assembled directly from the knowledge base."],
+        }
+    
+        class FakeResponse:
+            status_code = 200
+    
+            def json(self):
+                return canned
+    
+        import streamlit_app
+        from pathlib import Path
+    
+        app_path = Path(streamlit_app.__file__)
+    
+        monkeypatch.setattr(
+            streamlit_app.requests, "post", lambda *a, **k: FakeResponse()
+        )
+        monkeypatch.setattr(
+            streamlit_app.requests, "get", lambda *a, **k: FakeResponse()
+        )
+        from streamlit.testing.v1 import AppTest
+    
+        at = AppTest.from_file(str(app_path), default_timeout=60)
+        at.run()
+        assert not at.exception
+        # submit a question through the real input/button flow
+&gt;       at.text_input[0].set_value("What are the opening hours of Karnak Temple?").run()
+        ^^^^^^^^^^^^^^^^
+
+tests\test_output_refinement.py:425: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = WidgetList(), idx = 0
+
+    def __getitem__(self, idx: int | slice) -&gt; El_co | ElementList[El_co]:
+        if isinstance(idx, slice):
+            return ElementList(self._list[idx])
+&gt;       return self._list[idx]
+               ^^^^^^^^^^^^^^^
+E       IndexError: list index out of range
+
+..\..\..\..\AppData\Local\Programs\Python\Python311\Lib\site-packages\streamlit\testing\v1\element_tree.py:576: IndexError</error></testcase><testcase classname="tests.test_output_refinement.TestStreamlitRendering" name="test_missing_status_chip" time="0.529"><failure message="IndexError: list index out of range">self = &lt;test_output_refinement.TestStreamlitRendering object at 0x0000020F932660D0&gt;
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x0000020FA81A0410&gt;
+
+    def test_missing_status_chip(self, monkeypatch):
+        canned = {
+            "response_id": "r2", "query": "Q", "answer": "I couldn't find this information.",
+            "language": "en", "status": "unavailable", "generation_mode": "fallback",
+            "sources": [], "verification": {"status": "missing", "message": "not found."},
+            "warnings": [],
+        }
+    
+        class FakeResponse:
+            status_code = 200
+    
+            def json(self):
+                return canned
+    
+        import streamlit_app
+        from pathlib import Path
+    
+        app_path = Path(streamlit_app.__file__)
+    
+        monkeypatch.setattr(streamlit_app.requests, "post", lambda *a, **k: FakeResponse())
+        monkeypatch.setattr(streamlit_app.requests, "get", lambda *a, **k: FakeResponse())
+        from streamlit.testing.v1 import AppTest
+    
+        at = AppTest.from_file(str(app_path), default_timeout=60)
+        at.run()
+&gt;       at.text_input[0].set_value("Nile cruise price for children?").run()
+        ^^^^^^^^^^^^^^^^
+
+tests\test_output_refinement.py:465: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = WidgetList(), idx = 0
+
+    def __getitem__(self, idx: int | slice) -&gt; El_co | ElementList[El_co]:
+        if isinstance(idx, slice):
+            return ElementList(self._list[idx])
+&gt;       return self._list[idx]
+               ^^^^^^^^^^^^^^^
+E       IndexError: list index out of range
+
+..\..\..\..\AppData\Local\Programs\Python\Python311\Lib\site-packages\streamlit\testing\v1\element_tree.py:576: IndexError</failure></testcase></testsuite></testsuites>

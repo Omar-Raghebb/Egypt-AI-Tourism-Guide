@@ -151,6 +151,7 @@ class HybridRetriever:
             structured_records=unique_structured,
             structured_extras=extras,
             intent=pq.intent,
+            intents=list(pq.intents or [pq.intent] if pq.intent else []),
             detected_entities={
                 "places": pq.detected_places,
                 "city": pq.detected_city,

@@ -171,14 +171,14 @@ class TestFallback:
     def test_fallback_no_raw_evidence_dump(self):
         responder = FallbackResponder()
         answer = responder.respond(self._context(), "en")
-        # natural availability notice, not a raw evidence dump
-        assert "temporarily unavailable" in answer.lower()
+        # concise not-found sentence, never a raw evidence dump
+        assert "couldn't find this information" in answer.lower()
         assert "STRUCTURED EVIDENCE" not in answer
 
     def test_fallback_arabic_notice(self):
         responder = FallbackResponder()
         answer = responder.respond(self._context(), "ar")
-        assert "غير متوفرة" in answer
+        assert "لم أجد" in answer
         assert "قاعدة المعرفة" in answer
 
     def test_empty_context_reports_unavailable_naturally(self):

@@ -158,6 +158,7 @@ class FallbackResponder:
             p.place_id: p for p in (context.structured_records or [])
         }
         intent = retrieval.intent if retrieval is not None else None
+        all_intents = list(getattr(retrieval, "intents", []) or []) if retrieval is not None else []
 
         if intent == "itinerary":
             # itinerary queries: the plan itself (+ city/rules), NOT a dump
@@ -169,7 +170,7 @@ class FallbackResponder:
         else:
             # 1) intent-specific formatted facts from structured records
             for place in context.structured_records:
-                section = self._format_place(place, intent, lang)
+                section = self._format_place(place, intent, lang, intents=all_intents)
                 if section:
                     sections.append(section)
 
@@ -181,7 +182,10 @@ class FallbackResponder:
 
         # 3) no structured evidence at all -> honest "not available"
         if not sections:
-            sections.append(_NO_INFO_AR if lang == "ar" else _NO_INFO_EN)
+            # Nothing found: a short natural statement is the whole answer.
+            # No availability notice (nothing was "assembled") and no
+            # verification qualification (nothing exists to qualify).
+            return _NO_INFO_AR if lang == "ar" else _NO_INFO_EN
 
         # 4) one calm notice that full generation is offline (not an error dump)
         notice = GENERATION_UNAVAILABLE_AR if lang == "ar" else GENERATION_UNAVAILABLE_EN
@@ -196,7 +200,8 @@ class FallbackResponder:
 
     # ------------------------------------------------------------------
     def _format_place(
-        self, place: StructuredPlace, intent: Optional[str], lang: str
+        self, place: StructuredPlace, intent: Optional[str], lang: str,
+        intents: Optional[List[str]] = None,
     ) -> Optional[str]:
         L = _LABELS[lang]
         if self.structured is None:
@@ -216,20 +221,39 @@ class FallbackResponder:
             "indoor_outdoor": ["indoor_outdoor"],
             "age_suitability": ["age_suitability"],
         }
-        fields = intent_fields.get(intent, ["prices", "opening_hours"])
+        # multi-intent questions ("opening hours AND accessibility") render
+        # EVERY requested field, not only the first detected intent
+        requested = [i for i in (intents or ([intent] if intent else [])) if i]
+        overview_intents = (None, "definition", "semantic", "recommendation")
+        overview = any(i in overview_intents for i in requested)
+        fields: List[str] = []
+        for i in requested:
+            for f in intent_fields.get(i, []):
+                if f not in fields:
+                    fields.append(f)
+        if not requested:
+            fields = ["prices", "opening_hours"]
         for field in fields:
             lookup = self.structured.get_field(place.place_id, field)
             rendered = self._render_field(lookup, field, lang)
             if rendered:
                 lines.append(rendered)
 
-        # definition-type queries get the description
-        if intent in (None, "definition", "semantic", "recommendation"):
+        # overview-type queries: describe the place; do not dump prices
+        # and hours into a "best places to visit" list
+        if overview:
             description = (
                 place.data.get("description_ar") if lang == "ar" else place.data.get("description_en")
             )
             if description:
                 lines.append(f"{L['overview']}: {description}")
+            if any(i in (None, "definition") for i in requested) and "opening_hours" not in fields:
+                lookup = self.structured.get_field(place.place_id, "opening_hours")
+                rendered = self._render_hours(lookup.value, lang) if (
+                    lookup.status not in (VerificationStatus.MISSING, VerificationStatus.UNAVAILABLE)
+                ) else None
+                if rendered:
+                    lines.append(rendered)
 
         return "\n".join(lines)
 
@@ -242,15 +266,39 @@ class FallbackResponder:
         return city
 
     def _render_field(self, lookup: Any, field: str, lang: str) -> Optional[str]:
-        """Render one structured field lookup as a labeled, human line."""
+        """Render one structured field lookup as a labeled, human line.
+
+        When the field was explicitly requested by the query intent and the
+        KB has no value, an honest "not available" line is rendered instead
+        of silently omitting the requested information.
+        """
         L = _LABELS[lang]
         status = lookup.status
         value = lookup.value
+        not_available = (
+            "غير متوفر في قاعدة المعرفة." if lang == "ar"
+            else "not available in the knowledge base."
+        )
+
+        def _label_for(field: str) -> str:
+            return L.get(field, field.replace("_", " ").capitalize())
+
+        def _human_value(v: Any) -> Optional[str]:
+            """Dict/list values are never dumped raw."""
+            if isinstance(v, dict):
+                details = v.get("details") or v.get("note") or v.get("text")
+                if isinstance(details, str) and details.strip():
+                    return details.strip()
+                return None
+            if isinstance(v, (list, tuple)):
+                parts = [str(x).strip() for x in v if str(x).strip()]
+                return ", ".join(parts) if parts else None
+            if v is None:
+                return None
+            return str(v)
 
         if status in (VerificationStatus.MISSING, VerificationStatus.UNAVAILABLE):
-            if field in ("prices", "opening_hours"):
-                return None  # simply omit — no empty sections
-            return None
+            return f"{_label_for(field)}: {not_available}"
 
         if field == "prices":
             return self._render_prices(value, lang)
@@ -259,22 +307,22 @@ class FallbackResponder:
         if field == "coordinates" and isinstance(value, dict):
             lat, lng = value.get("lat"), value.get("lng")
             if lat is None or lng is None:
-                return None
+                lat, lng = value.get("latitude"), value.get("longitude")
+            if lat is None or lng is None:
+                return f"{_label_for(field)}: {not_available}"
             line = f"{L['location']}: lat {lat}, lng {lng}"
             if status == VerificationStatus.ESTIMATED:
                 line += " (approximate)" if lang == "en" else " (تقريبية)"
             return line
-        if field == "age_suitability":
-            return None  # null -> omit silently; the general qualification covers it
-        if field == "transportation_options":
-            return None
-        if field == "indoor_outdoor":
-            return None
 
-        # generic fallback for scalar values
-        if value is None:
-            return None
-        return f"{L.get(field, field)}: {value}"
+        # generic fallback: human-readable value or honest omission
+        human = _human_value(value)
+        if not human:
+            return f"{_label_for(field)}: {not_available}"
+        line = f"{_label_for(field)}: {human}"
+        if status == VerificationStatus.UNVERIFIED:
+            line += " (unverified)" if lang == "en" else " (غير موثق)"
+        return line
 
     @staticmethod
     def _render_prices(prices: Any, lang: str) -> Optional[str]:
@@ -359,8 +407,15 @@ class FallbackResponder:
         if extra.record_type == "itinerary":
             title = data.get("title_ar") if (lang == "ar" and data.get("title_ar")) else data.get("title_en")
             lines = [f"**{L['suggested_plan']}: {title}**"]
-            for day in data.get("days") or []:
-                day_lines = [f"{L['days']} {day.get('day')}: {day.get('title', '')}"]
+            days = data.get("days") or []
+            expected_days = data.get("days_count")
+            # ALWAYS render the complete itinerary: every day of the record,
+            # each with all of its stops (never truncated mid-itinerary).
+            for day in days:
+                day_title = day.get("title", "")
+                if lang == "ar" and day.get("title_ar"):
+                    day_title = day["title_ar"]
+                day_lines = [f"{L['days']} {day.get('day')} — {day_title}"]
                 for stop in day.get("stops") or []:
                     stop_name = _lookup_place_name(
                         places, stop.get("place_id", ""), lang, self.structured
@@ -372,9 +427,31 @@ class FallbackResponder:
                 if day.get("tip"):
                     day_lines.append(f"- {L['tip']}: {day['tip']}")
                 lines.append("\n".join(day_lines))
+            # report an honest limitation if the record itself is incomplete
+            if expected_days and len(days) < int(expected_days):
+                limitation = (
+                    f"خطة السجل تغطي {len(days)} يوم من أصل {expected_days}."
+                    if lang == "ar"
+                    else f"The itinerary record covers {len(days)} of {expected_days} days."
+                )
+                lines.append(f"_{limitation}_")
+            # family suitability note ONLY when the record itself supports it
+            interests = [str(i).lower() for i in (data.get("interests") or [])]
+            title_l = title.lower() if title else ""
+            if "famil" in title_l or any("famil" in i for i in interests):
+                lines.append(
+                    "مناسبة للعائلات حسب قاعدة المعرفة."
+                    if lang == "ar"
+                    else "Family-friendly according to the knowledge base."
+                )
             return "\n\n".join(lines)
 
         if extra.record_type == "planning_rule":
+            # rules are English-only in the KB; in Arabic answers we omit
+            # the English text instead of mixing languages (never invent
+            # a translation that is not in the knowledge base)
+            if lang == "ar" and not data.get("text_ar"):
+                return None
             text = data.get("text_en") or ""
             if text:
                 return f"**{L['notes']}:** {text}"
@@ -393,14 +470,31 @@ class FallbackResponder:
     def _verification_qualification(
         self, context: RetrievedContext, lang: str
     ) -> Optional[str]:
-        """Single, deduplicated qualification for unverified/conflicting info."""
+        """Single, deduplicated qualification for unverified/conflicting info.
+
+        When part of the evidence is verified and part is not, the wording
+        reflects the mixed situation instead of a blanket "unverified".
+        """
         statuses = {
             p.verification.status for p in context.structured_records
         }
         statuses |= {e.verification.status for e in context.structured_extras}
         if VerificationStatus.UNAVAILABLE in statuses:
             return None  # already communicated inline
-        if VerificationStatus.UNVERIFIED in statuses or VerificationStatus.ESTIMATED in statuses:
+        has_verified = VerificationStatus.VERIFIED in statuses
+        has_uncertain = bool(
+            statuses & {VerificationStatus.UNVERIFIED, VerificationStatus.ESTIMATED}
+        )
+        if has_verified and has_uncertain:
+            return (
+                "جزء من هذه المعلومات موثق جيداً، وأجزاء أخرى لم يتم التحقق "
+                "منها بشكل كافٍ، فيُفضّل التأكد قبل الاعتماد عليها."
+                if lang == "ar"
+                else "Part of this information is well-sourced; other parts "
+                "have not been fully verified yet, so please double-check "
+                "before relying on it."
+            )
+        if has_uncertain:
             return _UNVERIFIED_AR if lang == "ar" else _UNVERIFIED_EN
         return None
 

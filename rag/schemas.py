@@ -110,6 +110,7 @@ class RetrievalResult(BaseModel):
     structured_records: List[StructuredPlace] = Field(default_factory=list)
     structured_extras: List["StructuredRecord"] = Field(default_factory=list)
     intent: Optional[str] = None
+    intents: List[str] = Field(default_factory=list)   # all detected intents
     detected_entities: Dict[str, Any] = Field(default_factory=dict)
     filters: Dict[str, Any] = Field(default_factory=dict)
     methods_used: List[str] = Field(default_factory=list)
