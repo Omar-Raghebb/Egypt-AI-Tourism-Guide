@@ -168,9 +168,14 @@ class FallbackResponder:
                 if section:
                     sections.append(section)
         else:
-            # 1) intent-specific formatted facts from structured records
+            # 1) intent-specific formatted facts from structured records.
+            # Auto-added definition hours apply only when the answer is about
+            # a single place (a "what is X?" question), never to a listing.
+            auto_hours = len(context.structured_records) == 1
             for place in context.structured_records:
-                section = self._format_place(place, intent, lang, intents=all_intents)
+                section = self._format_place(
+                    place, intent, lang, intents=all_intents, auto_hours=auto_hours
+                )
                 if section:
                     sections.append(section)
 
@@ -202,6 +207,7 @@ class FallbackResponder:
     def _format_place(
         self, place: StructuredPlace, intent: Optional[str], lang: str,
         intents: Optional[List[str]] = None,
+        auto_hours: bool = True,
     ) -> Optional[str]:
         L = _LABELS[lang]
         if self.structured is None:
@@ -247,7 +253,15 @@ class FallbackResponder:
             )
             if description:
                 lines.append(f"{L['overview']}: {description}")
-            if any(i in (None, "definition") for i in requested) and "opening_hours" not in fields:
+            # a definition question about ONE place may include its hours;
+            # a multi-place listing ("main attractions in Luxor") is an
+            # overview and must not gain hours automatically — in either
+            # language
+            if (
+                auto_hours
+                and any(i in (None, "definition") for i in requested)
+                and "opening_hours" not in fields
+            ):
                 lookup = self.structured.get_field(place.place_id, "opening_hours")
                 rendered = self._render_hours(lookup.value, lang) if (
                     lookup.status not in (VerificationStatus.MISSING, VerificationStatus.UNAVAILABLE)

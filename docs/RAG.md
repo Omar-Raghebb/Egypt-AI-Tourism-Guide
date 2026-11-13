@@ -186,6 +186,15 @@ indoor/outdoor, age suitability, activities, recommendation, definition)
 using pattern rules — **not** a hardcoded list of example sentences. Structured
 intents route to the structured retriever in addition to hybrid retrieval.
 
+Language-symmetry rules (AR/EN response equivalence):
+- a `definition` intent never combines with another intent: inside a fact or
+  listing question ("what is the ticket price…", "ما هي ساعات زيارة…",
+  "ما هي أفضل الأماكن للزيارة…") the Arabic copula prefix is framing, not a
+  definition request. A standalone "What is X? / ما هو X؟" keeps definition.
+- overview-type listings (several places) never auto-add prices/hours;
+  a single-place definition question may include its hours.
+Both rules apply identically to Arabic and English queries.
+
 ## 9. Context construction
 
 `rag/context_builder.py` builds the LLM-ready evidence block:

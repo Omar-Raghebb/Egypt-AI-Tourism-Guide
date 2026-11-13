@@ -315,7 +315,17 @@ class QueryProcessor:
             "indoor_outdoor", "age_suitability", "activities", "itinerary",
             "recommendation", "definition",
         ]
-        return sorted(matched, key=lambda i: priority.index(i) if i in priority else 99)
+        matched.sort(key=lambda i: priority.index(i) if i in priority else 99)
+        # A "what is ... / ما هي ..." prefix inside another intent's question
+        # ("what is the ticket price", "ما هي ساعات زيارة ...", "ما هي أفضل
+        # الأماكن للزيارة ...") is conversational framing, not a definition
+        # request: the other intent defines the scope. Keeping definition
+        # would add descriptions/hours to fact or listing answers — and only
+        # in Arabic (English "what is" never matches "what are"), which broke
+        # Arabic/English response equivalence. Definition survives alone.
+        if len(matched) > 1 and "definition" in matched:
+            matched = [i for i in matched if i != "definition"]
+        return matched
 
     # ------------------------------------------------------------------
     def process(self, query: str) -> ProcessedQuery:

@@ -473,3 +473,71 @@ class TestStreamlitRendering:
         assert not at.exception
         markdown = "\n".join(str(m.value) for m in at.markdown)
         assert "Not in knowledge base" in markdown
+
+
+# ----------------------------------------------------------------------
+# 11) AR/EN attraction-query equivalence (Phase 4/5 defect: Arabic
+#     listings gained prices/hours that English listings did not)
+# ----------------------------------------------------------------------
+class TestArEnAttractionEquivalence:
+    def test_listing_intents_are_language_symmetric(self, mini_kb_file):
+        from rag.query_processing import QueryProcessor
+
+        kb = load_kb(None, mini_kb_file)
+        qp = QueryProcessor(kb)
+        en = qp.process("What are the best places to visit in Luxor?")
+        ar = qp.process("ما هي أفضل الأماكن للزيارة في الأقصر؟")
+        assert en.intents == ["recommendation"] == ar.intents
+        # the Arabic copula prefix "ما هي/ما هى" must not invent intents
+        assert qp.process("ما أهم الأماكن السياحية في الأقصر؟").intents == []
+        # fact questions: "definition" never rides along with another intent
+        assert qp.process("ما هي ساعات زيارة معبد الكرنك؟").intents == ["hours"]
+        assert qp.process(
+            "What is the ticket price of the Giza Pyramids?"
+        ).intents == ["price"]
+
+    def test_arabic_listing_has_no_hours_or_prices(self, client):
+        body = _answer(client, "ما هي أفضل الأماكن للزيارة في الأقصر؟")
+        answer = body["answer"]
+        assert "نبذة" in answer                      # descriptions included
+        assert "ساعات الزيارة" not in answer          # no auto hours
+        assert "أسعار التذاكر" not in answer          # no auto prices
+
+    def test_english_listing_has_no_hours_or_prices(self, client):
+        body = _answer(client, "What are the best places to visit in Luxor?")
+        answer = body["answer"]
+        assert "About" in answer
+        assert "Visiting hours" not in answer
+        assert "Ticket prices" not in answer
+
+    def test_arabic_listing_equivalent_to_english(self, client):
+        en = _answer(client, "What are the best places to visit in Luxor?")
+        ar = _answer(client, "ما هي أفضل الأماكن للزيارة في الأقصر؟")
+        # same information scope: names + city + description, no fact fields
+        for marker_en, marker_ar in (("Visiting hours", "ساعات الزيارة"),
+                                     ("Ticket prices", "أسعار التذاكر")):
+            assert marker_en not in en["answer"]
+            assert marker_ar not in ar["answer"]
+        # both list the same set of Luxor places (Arabic names in the AR one)
+        assert len(en["sources"]) == len(ar["sources"])
+
+    def test_price_question_scoped_to_prices(self, client):
+        body = _answer(client, "What is the ticket price of the Giza Pyramids?")
+        answer = body["answer"]
+        assert "Ticket prices" in answer
+        assert "Visiting hours" not in answer
+        assert "About" not in answer
+
+    def test_arabic_hours_question_has_no_description_addition(self, client):
+        body = _answer(client, "ما هي ساعات زيارة معبد الكرنك؟")
+        answer = body["answer"]
+        assert "ساعات الزيارة" in answer
+        # the "ما هي" prefix must not turn this into a definition answer
+        assert "نبذة" not in answer
+
+    def test_single_entity_definition_keeps_hours(self, client):
+        # preserved behavior: a genuine one-place definition question may
+        # include its hours
+        body = _answer(client, "What is the Karnak Temple?")
+        assert "Visiting hours" in body["answer"]
+        assert "About" in body["answer"]
