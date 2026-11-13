@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Dict, List, Optional
 
 from rag.config import RAGConfig
@@ -48,13 +49,16 @@ class ContextBuilder:
         estimated: List[str] = []
 
         # 1) exact structured values first (highest priority evidence)
+        # NOTE: headers deliberately carry NO internal ids — the LLM-facing
+        # evidence must not invite id citations in the user-facing answer
+        # (ids remain available through structured_records for the Agentic layer)
         for place in result.structured_records:
             if self.structured is not None:
                 summary = self.structured.summary_of(place)
             else:
-                summary = f"[{place.place_id}] {place.name} ({place.city or ''})"
+                summary = f"{place.name} ({place.city or ''})"
             sections.append(
-                f"### STRUCTURED RECORD — {place.name} (place_id: {place.place_id})\n"
+                f"### STRUCTURED RECORD — {place.name}\n"
                 f"verification: {place.verification.status.value}"
                 + (f" (last_verified: {place.verification.last_verified})"
                    if place.verification.last_verified else "")
@@ -66,28 +70,38 @@ class ContextBuilder:
                                 missing, unverified, estimated)
 
         # 2) structured extras (cities, activities, itineraries, rules, routes)
+        # the id key is dropped from the LLM-facing JSON for the same reason
+        # as the header ids above
         for extra in result.structured_extras:
+            llm_data = {
+                k: v for k, v in extra.data.items()
+                if k not in ("id", "place_id")
+            } if isinstance(extra.data, dict) else extra.data
             sections.append(
-                f"### STRUCTURED {extra.record_type.upper()} — {extra.title} "
-                f"(id: {extra.record_id})\n"
+                f"### STRUCTURED {extra.record_type.upper()} — {extra.title}\n"
                 f"verification: {extra.verification.status.value}"
                 + (f" (last_verified: {extra.verification.last_verified})"
                    if extra.verification.last_verified else "")
-                + f"\n{json.dumps(extra.data, ensure_ascii=False)}"
+                + f"\n{json.dumps(llm_data, ensure_ascii=False)}"
             )
             source_ref = extra.source.source_file or "knowledge base"
             sources.append(f"{extra.record_id}: {source_ref}")
             self._collect_flags(extra.verification.status, extra.record_id,
                                 missing, unverified, estimated)
 
-        # 3) retrieved documents
+        # 3) retrieved documents (chunk content may embed "[place_id] "
+        # markers from the index; scrub them for the LLM-facing text instead
+        # of rebuilding the index — the stored documents stay untouched)
         for doc in docs:
             verification = doc.verification.status.value
+            content = re.sub(
+                r"\[(?:[a-z][a-z0-9]*)(?:_[a-z0-9]+)+\]\s*", "", doc.content or ""
+            )
             lines = [
-                f"### DOCUMENT {doc.doc_id}",
-                f"place_id: {doc.place_id or 'n/a'} | section: {doc.section or 'n/a'} "
-                f"| verification: {verification} | source: {doc.source.source_file or 'knowledge base'}",
-                doc.content.strip(),
+                f"### DOCUMENT — {doc.section or 'chunk'}",
+                f"source: {doc.source.source_file or 'knowledge base'} "
+                f"| verification: {verification}",
+                content.strip(),
             ]
             sections.append("\n".join(lines))
             source_ref = doc.source.source_file or doc.metadata.get(

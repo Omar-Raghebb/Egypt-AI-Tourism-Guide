@@ -106,7 +106,7 @@ class AnswerValidator:
             return ValidationResult(OUTCOME_INSUFFICIENT, warnings)
 
         # 3) internal machinery leaking into the user answer
-        leak_warnings = self._structure_leak_warnings(answer)
+        leak_warnings = self._structure_leak_warnings(answer, context, retrieval)
         warnings.extend(leak_warnings)
 
         # 4) answer much longer than evidence (possible hallucinated padding)
@@ -134,19 +134,55 @@ class AnswerValidator:
     # ------------------------------------------------------------------
     _LEAK_PATTERNS = [
         (r"\{['\"]|```json|\"place_id\"\s*:", "raw_json"),
-        (r"\b[a-z][a-z0-9]+_[0-9]{3}\b", "internal_record_id"),
+        # record ids may have several underscore-separated parts
+        # (giza_pyramids_001, act_nile_cruise) — the id shape requires a
+        # snake_case token ending in _NNN, or any context-internal id
+        # (checked against the actual retrieved ids below)
+        (r"\b[a-z0-9]+(?:_[a-z0-9]+)*_[0-9]{3}\b", "internal_record_id"),
         (r"\bdoc_[a-f0-9]{6,}\b", "internal_doc_id"),
+        (r"\b[\w/\\]+\.(?:json|pkl|md|txt)\b", "internal_file_path"),
         (r"retrieval_score|chunk_id|traceback|exception\b", "debug_metadata"),
         (r"provider_error|api[_ ]error|status[_ ]code", "debug_metadata"),
     ]
 
-    def _structure_leak_warnings(self, answer: str) -> List[str]:
+    def _context_internal_ids(self, context: RetrievedContext,
+                              retrieval: Optional[RetrievalResult]) -> List[str]:
+        """All internal ids actually present in the retrieved evidence."""
+        ids: List[str] = []
+        for place in context.structured_records or []:
+            ids.append(str(place.place_id))
+        for extra in context.structured_extras or []:
+            ids.append(str(extra.record_id))
+        for doc in context.documents or []:
+            if doc.doc_id:
+                ids.append(str(doc.doc_id))
+                # chunked doc ids are "prefix::section::n"; the model may cite
+                # only the record prefix
+                prefix = str(doc.doc_id).split("::")[0]
+                if prefix and prefix != str(doc.doc_id):
+                    ids.append(prefix)
+        if retrieval is not None:
+            entities = getattr(retrieval, "detected_entities", None) or {}
+            ids.extend(str(p) for p in (entities.get("places") or []))
+        return [i for i in ids if i and i != "None"]
+
+    def _structure_leak_warnings(
+        self, answer: str, context: RetrievedContext,
+        retrieval: Optional[RetrievalResult] = None,
+    ) -> List[str]:
         """Detect raw JSON, internal IDs, or debug text in the answer."""
         found: List[str] = []
         for pattern, code in self._LEAK_PATTERNS:
             if re.search(pattern, answer, re.IGNORECASE):
                 if code not in found:
                     found.append(code)
+        # precise check: any internal id from THIS retrieval appearing in
+        # the user-facing answer (catches ids like city_luxor that have no
+        # _NNN suffix)
+        for internal_id in self._context_internal_ids(context, retrieval):
+            if re.search(rf"\b{re.escape(internal_id)}\b", answer):
+                if "internal_record_id" not in found:
+                    found.append("internal_record_id")
         return [f"leak:{code}" for code in found]
 
     _AR_RE = re.compile(r"[\u0600-\u06FF]")

@@ -443,7 +443,9 @@ class StructuredRetriever:
         if not isinstance(coords, dict):
             coords = (data.get("location") or {}).get("coordinates")
         lines = [
-            f"[{place.place_id}] {place.name}"
+            # NOTE: no internal id here — this text goes to the LLM and must
+            # not invite id citations in user-facing answers
+            f"{place.name}"
             + (f" ({place.name_arabic})" if place.name_arabic else ""),
             f"City: {place.city or 'not available'}",
             f"Category: {place.category or 'not available'}",

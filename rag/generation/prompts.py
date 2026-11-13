@@ -34,6 +34,10 @@ Output style (very important):
 - For factual tourism questions, organize with short labeled lines, e.g.
   "Ticket prices:", "Visiting hours:", "Location:", "Important notes:".
 - Only include labels/sections backed by evidence; no empty sections.
+- If the question asks for attractions / best places / things to see or do
+  (a LISTING question), give place names with short distinguishing
+  descriptions only. Do NOT add prices, opening hours or comparison tables
+  unless the question explicitly asks for them.
 - State uncertain information with a clear qualification; do not repeat the
   same warning more than once.
 - Be concise: answer what was asked, without dumping everything retrieved."""
@@ -58,6 +62,9 @@ SYSTEM_PROMPT_AR = """أنت رحلة AI، مساعد سياحي موثوق لم
 - للأسئلة الواقعية استخدم سطوراً قصيرة بعناوين واضحة مثل: "أسعار التذاكر:"،
   "ساعات الزيارة:"، "الموقع:"، "ملاحظات مهمة:".
 - اذكر العناوين المدعومة بالأدلة فقط، ولا تترك أقساماً فارغة.
+- إذا كان السؤال يطلب قائمة (أفضل الأماكن / المعالم السياحية / الأنشطة)،
+  اكتفِ بأسماء الأماكن مع وصف قصير لما يميز كل مكان. لا تُضف أسعاراً أو
+  مواعيد زيارة أو جداول مقارنة إلا إذا طلبها السؤال صراحةً.
 - وضّح المعلومات غير المؤكدة بتوضيح مناسب، ولا تكرّر نفس التحذير أكثر من مرة.
 - كن مختصراً: أجب عن المطلوب فقط دون سرد كل ما تم استرجاعه."""
 

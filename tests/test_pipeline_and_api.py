@@ -39,9 +39,13 @@ def _mock_groq():
         is_available = True
 
         def generate(self, messages, **kwargs):
+            # Compliant user-facing answer: cites display names only — an
+            # internal id here would (correctly) fail the validator's leak
+            # check and get replaced by the fallback.
             return (
-                "Based on the retrieved evidence, here is the requested information "
-                "[giza_pyramids]. (Mocked Groq response for testing.)"
+                "Based on the retrieved evidence, here is the requested "
+                "information about the Pyramids of Giza. (Mocked Groq "
+                "response for testing.)"
             )
 
     return MockGroq()

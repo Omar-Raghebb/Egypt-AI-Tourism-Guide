@@ -138,16 +138,18 @@ def _rendered_as_source(name: str, headers: List[str]) -> bool:
 
 
 def _friendly_sources(
-    context: Optional[RetrievedContext], answer: str, language: str = "en"
+    context: Optional[RetrievedContext], answer: str, language: str = "en",
+    generated_by: str = "fallback",
 ) -> List[str]:
     """Source references derived from the evidence ACTUALLY used.
 
     Fallback answers render every used record as a bold section header, so
     a source is listed only when its section is really present in the
     answer. Groq answers are prose — there, a source is listed when its
-    name is mentioned in the answer. Unrelated retrieved documents are
-    never listed. Deduplicated by normalized display name; never contains
-    internal IDs, chunk IDs or scores.
+    name is mentioned in the answer (or rendered as a bold section).
+    Unrelated retrieved documents are never listed. Deduplicated by
+    normalized display name; never contains internal IDs, chunk IDs or
+    scores.
     """
     if context is None:
         return []
@@ -160,9 +162,15 @@ def _friendly_sources(
     def _used(name: str) -> bool:
         if not name:
             return False
-        if headers:
-            return _rendered_as_source(name, headers)
-        return _mentioned_in_answer(name, answer_norm)
+        if headers and _rendered_as_source(name, headers):
+            return True
+        # mention matching applies to PROSE answers (Groq mode): a record
+        # explicitly named in the answer supports it. Fallback answers keep
+        # the strict rendered-section rule — a name inside another record's
+        # rule text is not a source.
+        if generated_by == "groq" and _mentioned_in_answer(name, answer_norm):
+            return True
+        return False
 
     notes_used = (
         any("ملاحظات مهمة" in header for header in headers)
@@ -298,7 +306,8 @@ def build_user_answer(response: RAGResponse) -> Dict:
         "status": status,
         "generation_mode": response.generated_by,          # groq | fallback
         "sources": [] if status == "unavailable" else _friendly_sources(
-            response.context, response.answer, response.language
+            response.context, response.answer, response.language,
+            generated_by=response.generated_by,
         ),
         "verification": verification,
         "warnings": warnings,

@@ -238,6 +238,17 @@ never pretends an LLM generated the answer (`generation_mode="fallback"`).
 The Agentic layer can still consume the internal evidence via
 `RAGResponse.context`.
 
+Missing-information contract (generation-mode independent): when the
+requested information does not exist in the knowledge base, the response is
+`status="unavailable"` with empty sources and a concise honest message —
+in fallback mode via the responder's "not found" decision, and in Groq mode
+by detecting the (prompt-mandated) honest "not available in the knowledge
+base" statement in the answer. A data-free guard keeps genuine partial
+answers (e.g. price known, hours missing) labelled `partial`/`success`.
+Internal record IDs never reach the user-facing answer: the validator
+rejects answers citing them (the pipeline then serves the clean fallback
+answer), and the LLM-facing context block carries no IDs at all.
+
 ## 12. Validation & guardrails
 
 `rag/generation/validator.py` validates generated answers with **graded

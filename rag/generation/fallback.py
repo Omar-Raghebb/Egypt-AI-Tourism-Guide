@@ -44,6 +44,41 @@ GENERATION_UNAVAILABLE_AR = (
 _NO_INFO_EN = "I couldn't find this information in the knowledge base yet."
 _NO_INFO_AR = "لم أجد هذه المعلومة في قاعدة المعرفة حتى الآن."
 
+# Detects a generated answer that honestly reports the requested information
+# is absent from the knowledge base (the prompt mandates this statement).
+# Used to label such requests status="unavailable" in Groq mode too —
+# the missing-info contract must be generation-mode independent.
+NO_INFO_ASSERTION_RE = re.compile(
+    r"knowledge base[^.!?\n]{0,120}?(?:does not contain|doesn't contain|"
+    r"does not have|has no|not available|no information|not found|"
+    r"couldn't find|cannot find|can't find)"
+    r"|(?:not available|not found|couldn't find|cannot find|can't find|"
+    r"no information|does not contain|doesn't contain)[^.!?\n]{0,120}?"
+    r"knowledge base"
+    r"|قاعدة المعرفة[^.!?؟\n]{0,120}?(?:لا توجد|غير موجودة|غير متوفر|لم أجد|"
+    r"لا تحتوي|لا يحتوي)"
+    r"|(?:لم أجد|لا توجد|غير موجودة|غير متوفر)[^.!?؟\n]{0,120}?قاعدة المعرفة",
+    re.IGNORECASE,
+)
+
+# Guard: an answer that actually delivers field data (numbers, prices, hours)
+# is a partial/success answer even if it also mentions something being
+# "not available" — only data-free answers may be labelled unavailable.
+_ANSWER_HAS_DATA_RE = re.compile(
+    r"\d+\s*(?:EGP|جنيه)|(?:EGP|جنيه)\s*\d+"
+    r"|ticket prices|visiting hours|opening hours|ساعات الزيارة|أسعار التذاكر"
+    r"|\*\*(?:place|المكان)\b|\bAbout\b|نبذة",
+    re.IGNORECASE,
+)
+
+
+def asserts_missing_info(answer: str) -> bool:
+    """True when the answer states the info is missing AND carries no data."""
+    return bool(
+        NO_INFO_ASSERTION_RE.search(answer or "")
+        and not _ANSWER_HAS_DATA_RE.search(answer or "")
+    )
+
 _UNVERIFIED_EN = (
     "This information comes from the knowledge base but has not been fully "
     "verified yet, so please double-check before relying on it."

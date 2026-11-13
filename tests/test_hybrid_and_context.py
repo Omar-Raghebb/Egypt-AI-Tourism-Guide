@@ -1,5 +1,7 @@
 """Tests for query processing, hybrid retrieval + RRF, and context building."""
 
+import re
+
 import pytest
 
 from rag.context_builder import ContextBuilder
@@ -178,9 +180,20 @@ class TestContextBuilder:
         result = built["hybrid"].retrieve("What is the ticket price of the Pyramids of Giza?")
         context = built["context_builder"].build(result)
         assert context.text
-        assert "place_id" in context.text
+        # evidence and provenance are present...
+        assert "STRUCTURED RECORD" in context.text
+        assert "verification:" in context.text
         assert context.sources
         assert all(":" in s for s in context.sources)
+        # ...but the LLM-facing text carries NO internal record ids (ids stay
+        # on the structured_records structures for the Agentic layer).
+        # Otherwise the model copies them into "(source: ...)" citations.
+        # KB file paths (giza_pyramids/info.json) are provenance and allowed
+        # here; the validator blocks file-path citations in ANSWERS.
+        assert "place_id:" not in context.text
+        assert "[giza_pyramids]" not in context.text
+        assert "[place_id]" not in context.text
+        assert not re.search(r"\b[a-z0-9_]+_[0-9]{3}\b", context.text)
 
     def test_exact_values_preserved(self, built):
         result = built["hybrid"].retrieve("ticket price giza pyramids foreign adult")

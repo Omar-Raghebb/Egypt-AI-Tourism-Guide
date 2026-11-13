@@ -19,7 +19,12 @@ from typing import Any, Dict, List, Optional
 from rag.config import RAGConfig
 from rag.context_builder import ContextBuilder
 from rag.embeddings import get_embedder
-from rag.generation.fallback import FallbackResponder
+from rag.generation.fallback import (
+    FallbackResponder,
+    _NO_INFO_AR,
+    _NO_INFO_EN,
+    asserts_missing_info,
+)
 from rag.generation.groq_client import GroqClient
 from rag.generation.prompts import build_messages
 from rag.generation.validator import OUTCOME_PARTIAL
@@ -165,16 +170,22 @@ class RAGPipeline:
         context = self.context_builder.build(retrieval)
         lang = language or detect_language(query)
 
+        # The deterministic responder short-circuits to a "not found" message
+        # exactly when the requested information does not exist in the KB.
+        # That decision is generation-mode independent: whether the final text
+        # comes from Groq or the fallback, a missing-info request must report
+        # status "unavailable" (never "success" with empty sources).
+        fallback_probe = self.fallback.respond(context, lang, retrieval=retrieval)
+        request_unsatisfiable = fallback_probe.strip() in (_NO_INFO_EN, _NO_INFO_AR)
+
         warnings: List[str] = []
         status = "success"
         generated_by = "groq"
 
         if not self.groq.is_available:
-            answer_text = self.fallback.respond(context, lang, retrieval=retrieval)
+            answer_text = fallback_probe
             generated_by = "fallback"
-            status = "success" if (
-                context.structured_records or context.structured_extras
-            ) else "unavailable"
+            status = "unavailable" if request_unsatisfiable else "success"
             return self._finalize(
                 query, answer_text, lang, generated_by, status,
                 warnings, retrieval, context, started,
@@ -185,10 +196,8 @@ class RAGPipeline:
             answer_text = self.groq.generate(messages)
         except Exception as exc:  # noqa: BLE001 - any generation failure falls back
             logger.error("Generation failed (%s); using fallback", exc)
-            answer_text = self.fallback.respond(context, lang, retrieval=retrieval)
-            status = "success" if (
-                context.structured_records or context.structured_extras
-            ) else "unavailable"
+            answer_text = fallback_probe
+            status = "unavailable" if request_unsatisfiable else "success"
             return self._finalize(
                 query, answer_text, lang, "fallback", status, warnings,
                 retrieval, context, started, error=str(exc),
@@ -198,11 +207,11 @@ class RAGPipeline:
         validation = self.fallback.validator.validate(answer_text, context, retrieval, lang)
         warnings.extend(validation.warnings)
         if not validation.is_usable:
-            # empty or fabricated-key-facts answer -> replace with fallback
+            # empty, leaky or fabricated-key-facts answer -> replace with fallback
             logger.warning(
                 "Generated answer rejected (%s); using fallback", validation.outcome
             )
-            answer_text = self.fallback.respond(context, lang, retrieval=retrieval)
+            answer_text = fallback_probe
             generated_by = "fallback"
             if validation.warnings and any(
                 w.startswith("unsupported_numbers") for w in validation.warnings
@@ -210,6 +219,15 @@ class RAGPipeline:
                 status = "partial"
         elif validation.outcome == OUTCOME_PARTIAL:
             status = "partial"
+
+        if status == "success" and asserts_missing_info(answer_text):
+            # the generated answer honestly reports that the requested
+            # information is not in the knowledge base — label the request
+            # unavailable (missing-info contract is generation-mode
+            # independent). The data-free guard inside asserts_missing_info
+            # keeps genuine partial answers (price known, hours missing)
+            # labelled partial/success instead.
+            status = "unavailable"
 
         return self._finalize(
             query, answer_text, lang, generated_by, status,
