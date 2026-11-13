@@ -223,29 +223,38 @@ def api_health() -> Optional[Dict[str, Any]]:
 # Answer rendering (user-facing contract only)
 # ---------------------------------------------------------------------
 VERIFICATION_CHIP = {
-    "verified": ('✅ Verified', "chip-verified"),
-    "mixed": ('🔶 Partly verified', "chip-mixed"),
-    "unverified": ('⚠️ Not fully verified', "chip-unverified"),
-    "missing": ('ℹ️ Not in knowledge base', "chip-info"),
+    "verified": ('✅ Verified', "✅ موثق", "chip-verified"),
+    "mixed": ('🔶 Partly verified', "🔶 موثق جزئياً", "chip-mixed"),
+    "unverified": ('⚠️ Not fully verified', "⚠️ غير موثق بالكامل", "chip-unverified"),
+    "missing": ('ℹ️ Not in knowledge base', "ℹ️ غير موجود في قاعدة المعرفة", "chip-info"),
 }
 
 
 def render_answer(payload: Dict[str, Any]) -> None:
     verification = payload.get("verification") or {}
     status = verification.get("status", "unverified")
-    chip_text, chip_class = VERIFICATION_CHIP.get(status, VERIFICATION_CHIP["unverified"])
+    language = payload.get("language", "en")
+    chip_entry = VERIFICATION_CHIP.get(status, VERIFICATION_CHIP["unverified"])
+    chip_text, chip_class = (
+        chip_entry[1] if language == "ar" else chip_entry[0],
+        chip_entry[2],
+    )
 
     st.markdown(f"<div class='bubble-assistant'>{payload['answer']}</div>", unsafe_allow_html=True)
 
     chips = f"<span class='chip {chip_class}'>{chip_text}</span>"
     mode = payload.get("generation_mode")
     if mode == "fallback":
-        chips += "<span class='chip chip-mixed'>📖 From knowledge base</span>"
+        fallback_label = (
+            "📖 من قاعدة المعرفة" if language == "ar" else "📖 From knowledge base"
+        )
+        chips += f"<span class='chip chip-mixed'>{fallback_label}</span>"
     st.markdown(chips, unsafe_allow_html=True)
 
     sources = payload.get("sources") or []
     if sources:
-        st.caption("Sources: " + " · ".join(sources))
+        sources_label = "المصادر: " if language == "ar" else "Sources: "
+        st.caption(sources_label + " · ".join(sources))
 
     for warning in payload.get("warnings") or []:
         st.markdown(f"<div class='note-warn'>ℹ️ {warning}</div>", unsafe_allow_html=True)

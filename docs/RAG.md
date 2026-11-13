@@ -12,7 +12,7 @@ or structured-lookup requests — it only receives the assembled evidence contex
 ## 1. Architecture
 
 ```
-data/egypt_landmarks_kb/          legacy per-landmark JSON KB (backup, no longer indexed)
+data/egypt_landmarks_kb/          per-landmark JSON KB (fallback format, kept: default KB_PATH + tests)
 data/rehlaai_rag_data_enhanced.json  ACTIVE knowledge base (enhanced RehlaAI JSON, read-only)
         │
         ▼
@@ -290,10 +290,16 @@ pipeline = RAGPipeline(); pipeline.initialize()
 app.include_router(create_rag_router(pipeline))
 ```
 
-(The legacy Ollama/FAISS implementation is quarantined in `legacy/` and is
-not part of this pipeline.)
+(The legacy Ollama/FAISS implementation was removed in the cleanup commit —
+the active pipeline replaces it entirely. Its files remain recoverable from
+git history.)
 
 ## 14. Agentic AI integration
+
+> **Language contract:** the response language is chosen automatically from
+> the user's latest question (`language=None` → `detect_language(query)`).
+> An explicit `language` request field (en|ar) overrides detection. The KB
+> language, model default, and previous turns never override it.
 
 The Agentic layer should use `pipeline.retrieve()` — it returns structured
 evidence, never plain text:

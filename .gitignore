@@ -13,3 +13,5 @@ __pycache__/
 # RAG pipeline artifacts (regenerable)
 data/chroma/
 evaluation/results_*.json
+TestResults/
+.pytest_cache/

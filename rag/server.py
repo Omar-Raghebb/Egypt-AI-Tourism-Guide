@@ -3,8 +3,8 @@
 Run with:
     uvicorn rag.server:app --reload
 
-This server does not touch the quarantined `legacy/app.py` (LangChain +
-FAISS + Ollama); the /rag router can also be mounted into an existing FastAPI app:
+This server serves only the active `rag/` pipeline; the /rag router can also
+be mounted into an existing FastAPI app:
 
     from rag.api import create_rag_router
     app.include_router(create_rag_router(pipeline))

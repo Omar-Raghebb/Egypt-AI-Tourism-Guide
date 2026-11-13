@@ -34,8 +34,9 @@ Retrieval-Augmented Generation over an **enhanced knowledge base**
 **field-level verification tracking** (verified / unverified / estimated /
 conflicting / missing / unavailable are never silently merged).
 
-The original LangChain + FAISS + Ollama implementation is preserved for
-reference in `legacy/` (it is not part of the active architecture).
+The original LangChain + FAISS + Ollama implementation was removed in the
+repository cleanup (see git history for the deleted files); the active
+architecture in `rag/` replaces it entirely.
 
 ## ✨ Features
 - 🏛 Answers about Egyptian landmarks, cities and activities (bilingual AR/EN)
@@ -43,6 +44,7 @@ reference in `legacy/` (it is not part of the active architecture).
 - 📅 Itinerary understanding ("Plan a 3-day itinerary in Cairo")
 - 🧭 Hybrid retrieval: dense (e5) + sparse (BM25) + structured, fused with RRF
 - ✅ Verification labels: unverified/estimated information is qualified, never invented
+- 🌐 Automatic language detection: answers follow the language of the user's latest question (explicit `language` field still overrides)
 - 🔒 Strict user-facing output contract (no raw JSON, document IDs or debug output)
 - 🤖 Groq generation with deterministic fallback when no LLM is available
 - ⚡ FastAPI REST API (`/rag/answer`, `/rag/retrieve`, `/rag/health`)
