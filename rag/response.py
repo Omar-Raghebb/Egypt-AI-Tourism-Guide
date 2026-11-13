@@ -195,8 +195,16 @@ def _friendly_sources(
         if key in seen:
             continue
         # skip variants of an already-listed source ("... (العنوان العربي)"
-        # doc-title variants of the same rendered record)
-        if any(key in existing or existing in key for existing in seen):
+        # doc-title variants of the same rendered record). Containment only
+        # counts when the SHORTER key is multi-token, so a one-word city
+        # name ("cairo") never swallows a longer, distinct source title.
+        def _is_variant(k: str) -> bool:
+            shorter, longer = sorted((k, key), key=len)
+            if len(shorter.split()) < 2:
+                return False
+            return shorter in longer
+
+        if any(_is_variant(existing) for existing in seen):
             continue
         seen.add(key)
         out.append(name)

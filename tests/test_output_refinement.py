@@ -169,6 +169,12 @@ class TestItineraryCompleteness:
         # stops render as destinations, not internal IDs
         assert "Giza" in answer
 
+    def test_itinerary_record_listed_in_sources(self, client):
+        body = _answer(client, "Plan a 3-day family itinerary in Cairo.")
+        # the itinerary record itself (rendered as "Suggested plan: ...")
+        # must be listed — a one-word city name must not swallow it
+        assert any("3 days in Cairo" in s for s in body["sources"])
+
     def test_itinerary_day_format(self, client):
         body = _answer(client, "Plan a 3-day family itinerary in Cairo.")
         answer = body["answer"]
