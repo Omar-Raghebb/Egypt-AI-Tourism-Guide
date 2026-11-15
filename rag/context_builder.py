@@ -71,8 +71,18 @@ class ContextBuilder:
 
         # 2) structured extras (cities, activities, itineraries, rules, routes)
         # the id key is dropped from the LLM-facing JSON for the same reason
-        # as the header ids above
-        for extra in result.structured_extras:
+        # as the header ids above.
+        # Itinerary records come FIRST among extras: they are the core
+        # answer source for day-by-day planning, and _fit_budget trims
+        # sections from the end — an itinerary rendered late would be the
+        # first thing dropped on budget overflow, leaving the LLM with a
+        # flat list of attractions and no day assignments (the original
+        # "flat list + N days recommended" regression).
+        extras = sorted(
+            result.structured_extras,
+            key=lambda e: e.record_type != "itinerary",
+        )
+        for extra in extras:
             llm_data = {
                 k: v for k, v in extra.data.items()
                 if k not in ("id", "place_id")

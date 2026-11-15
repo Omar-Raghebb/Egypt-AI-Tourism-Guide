@@ -214,15 +214,18 @@ Both rules apply identically to Arabic and English queries.
   backoff), network/timeouts (retried), empty responses. Secrets are never
   logged or embedded in error messages.
 - The system prompt enforces the user-facing output contract: answer only
-  from evidence, never invent prices or hours, mark unverified/estimated
-  values, cite sources by **place name** (never internal document IDs),
-  output clean labeled sections instead of raw JSON, state clearly when
-  evidence is insufficient, and answer in the user's language (AR/EN).
+  from evidence, never invent prices or hours, never present unverified,
+  estimated or conflicting values as confirmed facts, state a requested
+  value that cannot be safely established as "currently unavailable" (with
+  no internal verification talk), keep listings free of auto-added fact
+  fields, never cite sources inline (the API `sources` field carries
+  provenance), output clean labeled sections instead of raw JSON, and
+  answer in the user's language (AR/EN).
 
 **Adding your Groq API key:** create `.env` from `.env.example`, set
 `GROQ_API_KEY=...` (and optionally `GROQ_MODEL=...`). Until a key is present,
-`/rag/answer` returns the fallback response (retrieved evidence + an
-availability notice) instead of crashing.
+`/rag/answer` returns the fallback response — formatted like any other
+answer, with no availability notice.
 
 ## 11. Fallback strategy
 
@@ -230,21 +233,23 @@ If Groq is unavailable (no key, network down, rate-limited beyond retries),
 `answer()` uses the **deterministic template-based responder**
 (`rag/generation/fallback.py`). It builds a natural, intent-aware answer
 from the structured evidence — labeled price/hours/location sections in
-Arabic or English, itinerary day-by-day formatting, an explicit
-"information not available" statement when nothing matches, a single
-verification qualification, and one calm notice that AI wording is offline.
-It never dumps raw evidence, JSON, document IDs or validation notes, and it
-never pretends an LLM generated the answer (`generation_mode="fallback"`).
+Arabic or English, itinerary day-by-day formatting, and an explicit
+"information not available" statement when nothing matches.
+It never dumps raw evidence, JSON, document IDs or validation notes, it
+never shows verification labels, conflict warnings or fallback notices
+(unverified/estimated/conflicting FACT values are rendered as a brief
+"currently unavailable" line instead), and it never pretends an LLM
+generated the answer (`generation_mode="fallback"`).
 The Agentic layer can still consume the internal evidence via
 `RAGResponse.context`.
 
 Missing-information contract (generation-mode independent): when the
 requested information does not exist in the knowledge base, the response is
 `status="unavailable"` with empty sources and a concise honest message —
-in fallback mode via the responder's "not found" decision, and in Groq mode
-by detecting the (prompt-mandated) honest "not available in the knowledge
-base" statement in the answer. A data-free guard keeps genuine partial
-answers (e.g. price known, hours missing) labelled `partial`/`success`.
+detected by the shared `asserts_missing_info` guard in both modes. A
+data-free guard (unavailability sentences are stripped, then the remainder
+must carry no actual values) keeps genuine partial answers (e.g. price
+known, hours missing) labelled `partial`/`success`.
 Internal record IDs never reach the user-facing answer: the validator
 rejects answers citing them (the pipeline then serves the clean fallback
 answer), and the LLM-facing context block carries no IDs at all.
@@ -262,6 +267,31 @@ confidence score), missing-information detection, verification-status
 propagation, context size validation, and API/embedding/Chroma/structured
 error handling.
 
+Itinerary day-by-day contract (multi-day requests, both generation modes):
+
+- Requested trip length is extracted bilingually (`extract_requested_days`:
+  Western AND Arabic-Indic numerals, Arabic number words, English word and
+  hyphenated forms) and preserved in `detected_entities["days"]` on
+  `/rag/retrieve` for the Agentic layer.
+- A multi-day itinerary request (N >= 2 days) is answered with exactly N
+  day sections, each with its own Markdown heading (`### Day 1 — title` in
+  English, `### اليوم الأول` … Arabic ordinals in Arabic answers). Generic
+  attraction listings and single-day requests are never forced into this
+  structure.
+- The LLM prompt mandates the day-by-day structure (listing vs single-day
+  vs multi-day distinction) and receives the itinerary evidence first so
+  the character budget can never drop the day assignments.
+- The validator adds a structural itinerary check (`find_day_headings` /
+  `itinerary_structure_warnings`): a generated answer whose distinct day
+  headings do not cover Day 1..N is rejected and replaced with the
+  structured deterministic plan. Day-heading numbers themselves are exempt
+  from the unsupported-number check (structural markers, not claims).
+- The deterministic fallback renders the same day-by-day structure: exact
+  requested day headings, honest per-day limitation notes when the
+  evidence covers fewer days (headings are kept, nothing invented), and a
+  brief disclosure when a longer plan is truncated to the requested
+  length. Unresolvable stops are omitted (no internal IDs).
+
 ## 12b. User-facing output contract
 
 `rag/response.py::build_user_answer` converts the internal `RAGResponse`
@@ -277,13 +307,17 @@ into the serialized API contract. The user-facing layer shows only:
   "generation_mode": "groq | fallback",
   "sources": ["Giza Pyramids", "…"],
   "verification": {"status": "verified | unverified | mixed", "message": "…"},
-  "warnings": ["user-relevant notes only"]
+  "warnings": ["internal notes only — NOT rendered by the UI"]
 }
 ```
 
 Never shown to users: raw evidence documents, doc IDs, similarity/BM25
 scores, internal prompts/context, validation debug codes, provider errors,
-stack traces, configuration. Internal structures stay available on the
+stack traces, configuration — and **no verification chips, unverified
+warnings, fallback labels or generation-mode badges in the UI** (the
+Streamlit frontend renders only the answer + friendly sources; the
+`verification`/`warnings` fields remain in the API contract for the
+internal/Agentic consumers). Internal structures stay available on the
 `RAGResponse` object for the Agentic layer and diagnostics.
 
 ## 13. FastAPI

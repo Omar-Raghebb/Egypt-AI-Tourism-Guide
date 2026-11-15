@@ -172,19 +172,19 @@ class TestFallback:
         responder = FallbackResponder()
         answer = responder.respond(self._context(), "en")
         # concise not-found sentence, never a raw evidence dump
-        assert "couldn't find this information" in answer.lower()
+        assert "currently unavailable" in answer.lower()
         assert "STRUCTURED EVIDENCE" not in answer
 
     def test_fallback_arabic_notice(self):
         responder = FallbackResponder()
         answer = responder.respond(self._context(), "ar")
-        assert "لم أجد" in answer
-        assert "قاعدة المعرفة" in answer
+        assert "غير متاحة حاليًا" in answer
+        assert "قاعدة المعرفة" not in answer
 
     def test_empty_context_reports_unavailable_naturally(self):
         responder = FallbackResponder()
         answer = responder.respond(self._context(""), "en")
-        assert "couldn't find this information" in answer
+        assert "currently unavailable" in answer
         # no internal debug markers, no raw JSON
         assert "{" not in answer and "}" not in answer
 

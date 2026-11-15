@@ -86,6 +86,21 @@ class HybridRetriever:
                 methods.append("structured_fields")
             else:
                 warnings.append("structured_intent_without_place")
+                # structured intent (prices/hours/...) with NO specific
+                # place, but a known city: fetch the city's places so the
+                # requested fields are answered PER PLACE ("the main
+                # attractions in Luxor, their opening hours and ticket
+                # prices") instead of rendering only the city overview
+                if pq.detected_city:
+                    city_places = self.structured.find_places_by_city(
+                        pq.detected_city
+                    )
+                    structured_places.extend(city_places)
+                    structured_pseudo_rank.extend(
+                        (p.place_id, i)
+                        for i, p in enumerate(city_places, start=1)
+                    )
+                    methods.append("structured")
         elif not pq.detected_places and pq.detected_city:
             city_places = self.structured.find_places_by_city(pq.detected_city)
             structured_places.extend(city_places)
@@ -155,7 +170,9 @@ class HybridRetriever:
             detected_entities={
                 "places": pq.detected_places,
                 "city": pq.detected_city,
+                "cities": pq.detected_cities,
                 "structured_fields": pq.structured_fields,
+                "days": pq.days,
             },
             filters=effective_filters,
             methods_used=sorted(set(m for m in methods if m)),
@@ -217,11 +234,14 @@ class HybridRetriever:
 
         city = pq.detected_city
 
-        # city record
-        if city:
-            city_rec = self.structured.find_city(city)
+        # city record — one per mentioned destination (Bug B: a query naming
+        # two cities previously retrieved evidence for only one of them,
+        # chosen nondeterministically)
+        requested_cities = list(pq.detected_cities) or ([city] if city else [])
+        for city_name in requested_cities:
+            city_rec = self.structured.find_city(city_name)
             if city_rec:
-                add("city", city_rec, city_rec.get("name_en") or city)
+                add("city", city_rec, city_rec.get("name_en") or city_name)
 
         # activities intent: activities of the detected city (or all)
         matched_intents = set(pq.intents or [pq.intent])
@@ -232,12 +252,63 @@ class HybridRetriever:
             for act in activities:
                 add("activity", act, act.get("name_en") or act.get("id"))
 
-        # itinerary intent: itineraries of the detected city (or all)
+        # itinerary intent: itineraries of the detected city (or all).
+        # When the user requested a specific number of days, return ONLY the
+        # best-matching itinerary — returning every KB plan produced answers
+        # with several unrelated itineraries ("4-day trip" -> six plans).
+        # The renderer still enforces one plan and exact day counts.
         if "itinerary" in matched_intents:
-            itineraries = (
-                self.structured.find_itineraries_by_city(city) if city else kb.itineraries
-            )
-            for it in itineraries:
+            if len(requested_cities) > 1:
+                # multi-destination query (Bug B): combine KB plans so every
+                # requested destination gets evidence, without duplicates
+                selected = self._select_multi_city_itineraries(
+                    requested_cities, pq.days
+                )
+            else:
+                itineraries = (
+                    self.structured.find_itineraries_by_city(city) if city else kb.itineraries
+                )
+                requested_days = pq.days
+                if requested_days and len(itineraries) > 1:
+
+                    def _day_distance(it: Dict[str, Any]) -> tuple:
+                        try:
+                            count = int(
+                                it.get("days_count") or len(it.get("days") or [])
+                            )
+                        except (TypeError, ValueError):
+                            count = 0
+                        # records without a usable day count rank last; ties
+                        # prefer a plan that can cover the FULL requested
+                        # length over one that falls short of it
+                        if not count:
+                            return (99, 99, 1)
+                        # destination purity (Bug A): when the plan must be
+                        # TRUNCATED to the requested length, a combined plan
+                        # that merely includes the requested city must not
+                        # outrank a pure-city plan ("4 days in Aswan"
+                        # previously selected the 5-day Luxor->Aswan plan and
+                        # started in Luxor). The penalty applies only in the
+                        # truncation case, so the exact-length combined-plan
+                        # selections (5-day Luxor, budget trip without a
+                        # city) and short-trip choices are unchanged.
+                        it_city = str(it.get("city") or "").strip().lower()
+                        impure = (
+                            bool(city)
+                            and bool(it_city)
+                            and it_city != city.lower()
+                            and count > requested_days
+                        )
+                        return (
+                            1 if impure else 0,
+                            abs(count - requested_days),
+                            0 if count >= requested_days else 1,
+                        )
+
+                    best = min(itineraries, key=_day_distance)
+                    itineraries = [best]
+                selected = itineraries
+            for it in selected:
                 add("itinerary", it, it.get("title_en") or it.get("id"))
 
         # transportation intent: explicit unavailable record when empty
@@ -274,6 +345,109 @@ class HybridRetriever:
                 add("planning_rule", rule, f"Planning rule {rule.get('id')}")
 
         return extras
+
+    # ------------------------------------------------------------------
+    # Multi-destination itinerary selection (Bug B)
+    # ------------------------------------------------------------------
+    def _select_multi_city_itineraries(
+        self, cities: List[str], requested_days: Optional[int]
+    ) -> List[Dict[str, Any]]:
+        """Select itinerary evidence for a multi-destination query.
+
+        Reuses the existing KB plans — no new itinerary engine. When one KB
+        plan already covers every requested city ("Luxor and Aswan"), it is
+        returned as-is and the existing renderer/validator handle it like any
+        single plan. Otherwise the best exact-city plan per destination (in
+        mention order) is merged into ONE synthetic record: already-shown
+        stops are dropped, fully-duplicate days are skipped, days are
+        renumbered. Every stop comes verbatim from a KB plan — nothing is
+        invented; destinations without KB evidence contribute no days.
+        """
+        def _best_plan(city_l: str) -> Optional[Dict[str, Any]]:
+            plans = [
+                it for it in self.structured.kb.itineraries
+                if str(it.get("city") or "").strip().lower() == city_l
+            ]
+            if not plans:
+                return None
+            if requested_days:
+                def _dist(it: Dict[str, Any]) -> tuple:
+                    try:
+                        count = int(
+                            it.get("days_count") or len(it.get("days") or [])
+                        )
+                    except (TypeError, ValueError):
+                        count = 0
+                    if not count:
+                        return (99, 1)
+                    return (
+                        abs(count - requested_days),
+                        0 if count >= requested_days else 1,
+                    )
+                return min(plans, key=_dist)
+            # no length requested: the plan with the most day evidence
+            return max(plans, key=lambda it: len(it.get("days") or []))
+
+        # one KB plan that already covers ALL requested cities wins outright
+        for it in self.structured.kb.itineraries:
+            it_city = str(it.get("city") or "").lower()
+            if it_city and all(c.lower() in it_city for c in cities):
+                return [it]
+
+        merged_days: List[Dict[str, Any]] = []
+        used_place_ids: set = set()
+        titles_en: List[str] = []
+        titles_ar: List[str] = []
+        for city_name in cities:
+            plan = _best_plan(city_name.strip().lower())
+            if plan is None:
+                continue  # no evidence for this destination — never invented
+            city_rec = self.structured.find_city(city_name)
+
+            def _display(key: str) -> str:
+                if city_rec and city_rec.get(key):
+                    return str(city_rec[key])
+                return city_name
+
+            titles_en.append(_display("name_en"))
+            titles_ar.append(_display("name_ar"))
+            for day in plan.get("days") or []:
+                stops = [
+                    stop for stop in (day.get("stops") or [])
+                    if str(stop.get("place_id") or "") not in used_place_ids
+                ]
+                if not stops:
+                    continue  # day fully duplicated by an earlier destination
+                for stop in stops:
+                    used_place_ids.add(str(stop.get("place_id") or ""))
+                merged_days.append({
+                    "day": len(merged_days) + 1,
+                    "title": day.get("title"),
+                    "stops": stops,
+                    "tip": day.get("tip"),
+                })
+
+        if not merged_days:
+            return []  # nothing retrievable: the honest "not available" path
+        record = {
+            "id": "itinerary_combined",
+            "title_en": " and ".join(dict.fromkeys(titles_en)),
+            "title_ar": " و".join(dict.fromkeys(titles_ar)),
+            "city": " and ".join(dict.fromkeys(titles_en)),
+            "days_count": len(merged_days),
+            "days": merged_days,
+            "interests": [],
+            "pace": "",
+            # merged plan: honestly unverified (the KB has no such plan)
+            "data_quality": {
+                "days": {
+                    "status": "unverified",
+                    "source_url": None,
+                    "verification_date": None,
+                },
+            },
+        }
+        return [record]
 
     # ------------------------------------------------------------------
     def _rrf_fuse(

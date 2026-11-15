@@ -65,12 +65,18 @@ INTENT_PATTERNS: Dict[str, List[str]] = {
         r"\b\d+\s*days?\b", r"\b(?:one|two|three|four|five|six|seven)\s+days?\b",
         r"trip to", r"journey to",
         r"برنامج", r"خط سير", r"خطة", r"جولة يوم", r"خطوط سير",
+        # "رحلة" only when it means a multi-day trip plan, not a single
+        # activity ("رحلة عشاء النيلية" = dinner cruise): allow up to two
+        # Arabic words between "رحلة" and the plan marker ("رحلة عائلية
+        # لمدة 3 أيام"), but require an explicit trip-plan marker after it
+        r"رحلة\s+(?:[\u0600-\u06FF]{2,}\s+){0,2}?(?:سياحية|كاملة|لمدة|يومين|يوم|أيام|ايام|\d)",
     ],
     "recommendation": [
         r"best places", r"recommend", r"suggest", r"top places", r"must visit",
-        r"visit in", r"places to see",
-        r"أفضل", r"أحسن", r"انصح", r"أنصح", r"ترشيح", r"أزور", r"أشوف",
-    ],    "definition": [
+        r"visit in", r"places to see", r"attraction",
+        r"أفضل", r"أحسن", r"أنصح", r"انصح", r"ترشيح", r"أزور", r"أشوف", r"أهم",
+    ],
+    "definition": [
         r"what is", r"who built", r"who made", r"history of", r"tell me about", r"about\b",
         r"ما هو", r"ما هى", r"من بني", r"من صنع", r"تاريخ", r"عن", r"حدثني", r"اخبرني",
     ],
@@ -131,10 +137,61 @@ class ProcessedQuery:
     structured_fields: List[str] = field(default_factory=list)
     detected_places: List[str] = field(default_factory=list)
     detected_city: Optional[str] = None
+    detected_cities: List[str] = field(default_factory=list)  # ALL mentioned
     filters: Dict[str, Any] = field(default_factory=dict)
     language: str = "en"
     warnings: List[str] = field(default_factory=list)
     intents: List[str] = field(default_factory=list)  # ALL matched intents
+    days: Optional[int] = None  # requested trip length ("plan a 3-day trip")
+
+
+# Number words -> digits (EN words; Arabic phrases are matched on the raw
+# text below). Anything else is matched by digit patterns.
+_WORD_DAYS = {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
+}
+_AR_WORD_DAYS = {  # matched against the RAW text (un-normalized forms)
+    "يوم واحد": 1, "يومين": 2, "اليومين": 2,
+    "ثلاثة أيام": 3, "ثلاث ايام": 3,
+    "اربعة ايام": 4, "أربعة أيام": 4, "أربع أيام": 4, "اربعة أيام": 4,
+    "خمسة أيام": 5, "خمسة ايام": 5, "خمس ايام": 5, "خمس أيام": 5,
+    "ستة أيام": 6, "ستة ايام": 6,
+    "سبعة أيام": 7, "سبعة ايام": 7,
+}
+
+# Western AND Arabic-Indic numerals ("3 أيام", "٣ أيام")
+_ARABIC_INDIC = str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789")
+_DAYS_DIGIT_RE = re.compile(r"\b(\d+)[\s\-]*(?:days?\b|يوم|أيام|ايام)")
+_DAYS_WORD_EN_RE = re.compile(
+    r"\b(one|two|three|four|five|six|seven)[- ]days?\b", re.IGNORECASE
+)
+
+
+def extract_requested_days(query: str) -> Optional[int]:
+    """Requested trip length in days ("plan a 3-day trip", "لمدة يومين").
+
+    Pattern-driven, bilingual; returns None when the query does not state
+    a number of days. Numbers followed by budgets/prices/counts are never
+    matched (a duration always needs the "days" unit right after the
+    number), and the result is capped at 30 days.
+    """
+    text = (query or "").translate(_ARABIC_INDIC)
+    match = _DAYS_DIGIT_RE.search(text)
+    if match:
+        try:
+            value = int(match.group(1))
+        except ValueError:
+            value = None
+        if value and 1 <= value <= 30:
+            return value
+    match = _DAYS_WORD_EN_RE.search(text)
+    if match:
+        return _WORD_DAYS.get(match.group(1).lower())
+    low = text.lower()
+    for phrase, value in _AR_WORD_DAYS.items():
+        if phrase in low or phrase in text:
+            return value
+    return None
 
 
 def normalize_query(text: str) -> str:
@@ -207,7 +264,8 @@ class QueryProcessor:
             normalized, detected_places, matched_patterns
         )
 
-        detected_city = self._detect_city(normalized)
+        detected_cities = self._detect_cities(normalized)
+        detected_city = detected_cities[0] if detected_cities else None
 
         filters: Dict[str, Any] = {}
         if detected_city:
@@ -222,6 +280,7 @@ class QueryProcessor:
         return {
             "places": detected_places,
             "city": detected_city,
+            "cities": detected_cities,
             "filters": filters,
         }
 
@@ -273,29 +332,64 @@ class QueryProcessor:
         return strong if strong else detected_places
 
     def _detect_city(self, normalized: str) -> Optional[str]:
-        # Known Egyptian cities: first from the cities collection (enhanced KB),
-        # then from place records, then Arabic aliases.
-        cities = set()
-        for city in getattr(self.kb, "cities", []):
-            for key in ("name_en", "name_ar"):
-                if city.get(key):
-                    cities.add(str(city[key]))
-        for place in self.kb.places.values():
-            if place.city:
-                cities.add(place.city)
-        for city in cities:
-            if re.search(re.escape(city), normalized, re.IGNORECASE):
-                return city
-        # Arabic aliases: the query text is normalized (hamza/alef variants
-        # collapsed), so compare against a normalized alias as well
-        city_by_ar = {}
+        """Single primary city: the FIRST one mentioned in the query."""
+        cities = self._detect_cities(normalized)
+        return cities[0] if cities else None
+
+    def _detect_cities(self, normalized: str) -> List[str]:
+        """ALL cities mentioned in the query, in order of first appearance.
+
+        The previous single-city detection iterated a ``set`` of candidates,
+        so when two cities were mentioned ("الجيزة والقاهرة") which one won
+        was nondeterministic and the other destination's evidence was never
+        retrieved (Bug B). Candidates: cities collection (name_en/name_ar),
+        place records, then Arabic aliases; every alias is compared against
+        the normalized query (and its own normalized form) so Arabic
+        hamza/teh-marbuta variants match. Deduplicated by canonical English
+        name; ordering is by earliest match position.
+        """
+        city_by_ar: Dict[str, str] = {}
         for city in getattr(self.kb, "cities", []):
             if city.get("name_en") and city.get("name_ar"):
-                city_by_ar[city["name_ar"]] = city["name_en"]
+                city_by_ar[str(city["name_ar"])] = str(city["name_en"])
+
+        candidates: Dict[str, List[str]] = {}  # canonical EN -> aliases
+
+        def _register(canonical: str, *aliases: str) -> None:
+            canonical = (canonical or "").strip()
+            if not canonical:
+                return
+            bucket = candidates.setdefault(canonical, [])
+            for alias in aliases:
+                alias = (alias or "").strip()
+                if alias and alias not in bucket:
+                    bucket.append(alias)
+
+        for city in getattr(self.kb, "cities", []):
+            _register(str(city.get("name_en") or ""), str(city.get("name_ar") or ""))
+        for place in self.kb.places.values():
+            if place.city:
+                _register(str(place.city).strip(), str(place.city).strip())
         for ar, en in {**CITY_ALIASES, **city_by_ar}.items():
-            if ar in normalized or normalize_text(ar) in normalized:
-                return en
-        return None
+            _register(en, ar)
+
+        hits: List[tuple] = []  # (earliest match position, canonical)
+        for canonical, aliases in candidates.items():
+            for alias in aliases:
+                normalized_alias = normalize_query(alias)
+                match = re.search(
+                    re.escape(normalized_alias), normalized, re.IGNORECASE
+                )
+                if match:
+                    hits.append((match.start(), canonical))
+                    break  # keep the earliest position for this city
+        hits.sort(key=lambda hit: (hit[0], hit[1]))
+
+        ordered: List[str] = []
+        for _position, canonical in hits:
+            if canonical not in ordered:
+                ordered.append(canonical)
+        return ordered
 
     # ------------------------------------------------------------------
     def detect_intents(self, query: str) -> List[str]:
@@ -342,8 +436,31 @@ class QueryProcessor:
                 if field not in structured_fields:
                     structured_fields.append(field)
 
+        days = extract_requested_days(query)
         # Query without any recognized intent defaults to semantic search.
         intent = intents[0] if intents else "semantic"
+        # A requested trip length makes the itinerary the primary intent:
+        # "Plan a 3-day family itinerary in Cairo" must answer with the
+        # PLAN (not per-place fact fields triggered by "family"), and the
+        # itinerary branch of the responder must be the one that renders.
+        if days and "itinerary" in intents:
+            intents = ["itinerary"] + [i for i in intents if i != "itinerary"]
+            intent = "itinerary"
+            structured_fields = []
+        elif (
+            days
+            and not set(intents) & STRUCTURED_INTENTS
+            and not entities["places"]
+        ):
+            # Colloquial follow-ups state ONLY the length and no plan
+            # keyword ("خليها يومين في الأقصر"): an explicit day count with
+            # no structured-fact intent and no specific place is a trip-plan
+            # request, so it routes to the itinerary branch like any other
+            # plan request. Fact intents ("سعر...", "مواعيد...") and
+            # place-specific questions keep their own routing.
+            intents = ["itinerary"] + [i for i in intents if i != "itinerary"]
+            intent = "itinerary"
+            structured_fields = []
         warnings: List[str] = []
         if not entities["places"] and not entities["city"]:
             warnings.append("no_place_detected")
@@ -355,8 +472,10 @@ class QueryProcessor:
             structured_fields=structured_fields,
             detected_places=entities["places"],
             detected_city=entities["city"],
+            detected_cities=entities.get("cities") or [],
             filters=entities["filters"],
             language=language,
             warnings=warnings,
             intents=intents,
+            days=extract_requested_days(query),
         )

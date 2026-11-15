@@ -41,6 +41,14 @@ OUTCOME_PARTIAL = "partially_supported"
 OUTCOME_INSUFFICIENT = "insufficient_evidence"
 OUTCOME_INVALID = "invalid"
 
+# Arabic ordinal day words used in day headings ("اليوم الأول" ...);
+# the English form ("### Day 2") is matched by its own pattern below.
+_AR_DAY_ORDINALS = [
+    "الأول", "الثاني", "الثالث", "الرابع", "الخامس",
+    "السادس", "السابع", "الثامن", "التاسع", "العاشر",
+]
+_DAY_HEAD_EN_RE = re.compile(r"###\s*Day\s*(\d+)", re.IGNORECASE)
+
 
 class ValidationResult:
     """Outcome of answer validation."""
@@ -66,6 +74,53 @@ def _is_hedged(sentence: str) -> bool:
     )
 
 
+def find_day_headings(answer: str) -> set:
+    """Day numbers found as distinct day headings (bilingual, structural).
+
+    Recognizes Markdown headings "### Day N" (English) and the Arabic
+    ordinal forms "اليوم الأول" .. "اليوم العاشر" (plus "اليوم N" beyond
+    ten). This is a structural check — it does NOT count the string
+    "days" or numbers in prose.
+    """
+    found: set = set()
+    for match in _DAY_HEAD_EN_RE.finditer(answer or ""):
+        try:
+            found.add(int(match.group(1)))
+        except ValueError:
+            continue
+    for index, ordinal in enumerate(_AR_DAY_ORDINALS, start=1):
+        if re.search(rf"اليوم\s+{re.escape(ordinal)}\b", answer or ""):
+            found.add(index)
+    for number in range(11, 31):
+        if re.search(rf"اليوم\s+{number}\b", answer or ""):
+            found.add(number)
+    return found
+
+
+def itinerary_structure_warnings(
+    answer: str, requested_days: int
+) -> List[str]:
+    """Structural validation of a multi-day itinerary answer.
+
+    For an N-day itinerary request (N >= 2) the answer must contain the
+    distinct day headings Day 1..N. A flat list (or a plan that puts
+    everything under the first day) is missing headings 2..N and is
+    reported as a structural failure.
+    """
+    found = find_day_headings(answer)
+    if not found:
+        return [f"itinerary_structure:no_day_headings_for_{requested_days}_days"]
+    missing = [
+        day for day in range(1, requested_days + 1) if day not in found
+    ]
+    if missing:
+        return [
+            "itinerary_structure:missing_day_headings_"
+            + ",".join(str(d) for d in missing)
+        ]
+    return []
+
+
 class AnswerValidator:
     """Validates a generated answer against its retrieved context."""
 
@@ -82,8 +137,15 @@ class AnswerValidator:
 
         context_text = context.text or ""
 
-        # 1) unsupported numerical claims (fabrication risk)
-        answer_numbers = extract_numbers(answer)
+        # 1) unsupported numerical claims (fabrication risk).
+        # Day-heading indices ("### Day 1", "### اليوم 12") are structural
+        # markers required by the day-by-day contract, not factual claims —
+        # their numbers are exempt from the unsupported-number check so a
+        # padded day (requested > available evidence) is not rejected for
+        # using its own heading number.
+        heading_safe = re.sub(r"(###\s*Day\s*)\d+", r"\1N", answer)
+        heading_safe = re.sub(r"(###\s*اليوم\s*)\d+", r"\1N", heading_safe)
+        answer_numbers = extract_numbers(heading_safe)
         context_numbers = set(extract_numbers(context_text))
         unsupported: List[str] = []
         for number in answer_numbers:
@@ -109,6 +171,22 @@ class AnswerValidator:
         leak_warnings = self._structure_leak_warnings(answer, context, retrieval)
         warnings.extend(leak_warnings)
 
+        # 3b) structural validation for multi-day itinerary requests:
+        # the answer must contain the requested number of distinct day
+        # headings (bilingual). A flattened attraction list is NOT an
+        # acceptable itinerary answer — it is repaired by replacing it
+        # with the structured fallback plan.
+        itinerary_days = None
+        if retrieval is not None:
+            if getattr(retrieval, "intent", None) == "itinerary":
+                itinerary_days = (retrieval.detected_entities or {}).get("days")
+        structure_warnings: List[str] = []
+        if itinerary_days and int(itinerary_days) >= 2:
+            structure_warnings = itinerary_structure_warnings(
+                answer, int(itinerary_days)
+            )
+            warnings.extend(structure_warnings)
+
         # 4) answer much longer than evidence (possible hallucinated padding)
         if len(answer) > 8 * max(len(context_text), 1):
             warnings.append("answer_much_longer_than_evidence")
@@ -119,9 +197,12 @@ class AnswerValidator:
         lang_warnings = self._language_warnings(answer, language)
         warnings.extend(lang_warnings)
 
-        # leaks and language issues downgrade the outcome one step (never to
-        # invalid) so callers log and qualify instead of discarding the answer
-        if unsupported:
+        # leaks downgrade the outcome (never to invalid) so callers log
+        # and qualify instead of discarding the answer; unsupported
+        # numbers and a missing day structure ARE hard failures (the
+        # answer would misinform or is not the requested itinerary) and
+        # replace the answer with the structured fallback
+        if unsupported or structure_warnings:
             outcome = OUTCOME_INVALID
         elif leak_warnings:
             outcome = OUTCOME_INSUFFICIENT

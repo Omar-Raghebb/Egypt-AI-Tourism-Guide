@@ -14,6 +14,12 @@ Each test maps 1:1 to a defect observed in real API / Streamlit outputs:
   8. Partial evidence produced a useless answer instead of a qualified one.
   9. Raw JSON / debug text / provider errors could leak into answers.
  10. Streamlit must render the final contract without internal metadata.
+
+Updated for the clean-answer contract (refinement pass): unverified /
+estimated / conflicting FACT values are NOT shown as facts — a requested
+value that cannot be safely established is stated as "currently
+unavailable" (no verification talk, no fallback notices anywhere in the
+user-facing answer; see tests/test_user_contract.py for the full suite).
 """
 
 from __future__ import annotations
@@ -123,16 +129,23 @@ def _answer(client: TestClient, query: str, language: str = None) -> Dict[str, A
 class TestKarnakSourceRelevance:
     def test_karnak_hours_sources_are_karnak_only(self, client):
         body = _answer(client, "What are the opening hours of Karnak Temple?")
-        assert body["status"] == "success"
-        assert any("Karnak" in s for s in body["sources"])
-        joined = " | ".join(body["sources"])
-        assert "Philae" not in joined, f"unrelated Philae source: {joined}"
-        assert "Hatshepsut" not in joined, f"unrelated Hatshepsut source: {joined}"
+        # Case B: the KB marks these hours requires_verification -> the
+        # value is not presented; the request may be labelled unavailable
+        assert body["status"] in ("success", "unavailable")
+        if body["sources"]:
+            assert any("Karnak" in s for s in body["sources"])
+            joined = " | ".join(body["sources"])
+            assert "Philae" not in joined, f"unrelated Philae source: {joined}"
+            assert "Hatshepsut" not in joined, f"unrelated Hatshepsut source: {joined}"
 
     def test_karnak_hours_answer_does_not_render_other_temples(self, client):
         body = _answer(client, "What are the opening hours of Karnak Temple?")
         answer = body["answer"]
-        assert "07:00" in answer  # Karnak's own hours
+        # Case B: the KB marks Karnak's hours "requires_verification" ->
+        # the value is NOT presented as a confirmed fact; a brief natural
+        # unavailability statement replaces it (no internal verification talk)
+        assert "currently unavailable" in answer.lower()
+        assert "07:00" not in answer
         # no unrelated temple is rendered as an answer section (the KB rule
         # text may legitimately mention West Bank sights by name)
         assert "Place: Philae" not in answer
@@ -225,7 +238,7 @@ class TestUnavailableAnswer:
         assert body["sources"] == []
         assert body["warnings"] == []
         assert body["verification"]["status"] == "missing"
-        assert "couldn't find this information" in body["answer"].lower()
+        assert "currently unavailable" in body["answer"].lower()
 
     def test_unavailable_verification_message_is_plain(self, client):
         body = _answer(
@@ -235,14 +248,21 @@ class TestUnavailableAnswer:
 
 
 # ----------------------------------------------------------------------
-# 5) Conflicting Giza prices stay explicitly qualified
+# 5) Conflicting Giza prices are treated as unavailable (Case C): no
+#    arbitrary value is chosen, no conflict warning is exposed
 # ----------------------------------------------------------------------
 class TestConflictingValues:
-    def test_giza_conflict_is_qualified(self, client):
+    def test_giza_conflict_is_unavailable_without_warning(self, client):
         body = _answer(client, "How much is the ticket price for the Giza Pyramids?")
         answer = body["answer"]
-        assert "1000" in answer  # the conflicting values are still shown
-        assert "conflicting" in answer.lower()
+        # no single conflicting value is presented as fact
+        assert "1000" not in answer
+        assert "500" not in answer
+        # no internal conflict/verification talk
+        assert "conflicting" not in answer.lower()
+        assert "unverified" not in answer.lower()
+        # honest brief unavailability instead
+        assert "currently unavailable" in answer.lower()
 
     def test_giza_sources_relevant(self, client):
         body = _answer(client, "How much is the ticket price for the Giza Pyramids?")
@@ -280,18 +300,22 @@ class TestLanguageConsistency:
 # 8) Partial evidence -> useful, qualified answer
 # ----------------------------------------------------------------------
 class TestPartialEvidence:
-    def test_hours_known_accessibility_missing(self, client):
+    def test_hours_and_accessibility_unverified(self, client):
         body = _answer(
             client, "What are the opening hours and accessibility of Hatshepsut Temple?"
         )
         answer = body["answer"]
-        # the known part is still delivered (useful, not discarded)
-        assert "06:00" in answer
-        # the missing part is honestly marked
+        # the KB marks both fields "requires_verification" (Case B): neither
+        # value is presented as a confirmed fact; each requested field gets
+        # its own brief, honest unavailability line — no verification talk
         low = answer.lower()
-        assert ("not available" in low) or ("not specified" in low)
+        assert low.count("currently unavailable") >= 2
+        assert "06:00" not in answer
+        assert "unverified" not in low
+        assert "Visiting hours" in answer
+        assert "Accessibility" in answer
         # never fabricated
-        assert body["status"] in ("success", "partial")
+        assert body["status"] in ("success", "partial", "unavailable")
 
 
 # ----------------------------------------------------------------------
@@ -367,7 +391,8 @@ class TestValidatorStructureChecks:
         assert any(w.startswith("language_mismatch") for w in result.warnings)
         assert result.outcome == OUTCOME_PARTIAL
 
-    def test_mixed_verification_qualification(self, mini_kb_file):
+    def test_no_verification_qualification_in_answer(self, mini_kb_file):
+        """Case B/E: the fallback answer carries NO verification talk."""
         from rag.generation.fallback import FallbackResponder
         from rag.retrieval.structured import StructuredRetriever
         from rag.schemas import StructuredPlace, VerificationMetadata, VerificationStatus
@@ -390,7 +415,13 @@ class TestValidatorStructureChecks:
             structured_records=[place, place2],
         )
         answer = responder.respond(context, "en")
-        assert "well-sourced" in answer and "double-check" in answer
+        # both places are rendered as content
+        assert "**Place: X**" in answer and "**Place: Y**" in answer
+        # no verification qualification, no unverified labels, no notices
+        assert "well-sourced" not in answer.lower()
+        assert "double-check" not in answer.lower()
+        assert "unverified" not in answer.lower()
+        assert "knowledge base" not in answer.lower()
 
 
 # ----------------------------------------------------------------------
@@ -438,14 +469,28 @@ class TestStreamlitRendering:
     def test_renders_answer_without_internal_metadata(self, streamlit_run):
         at, canned = streamlit_run
         markdown = "\n".join(str(m.value) for m in at.markdown)
+        # the answer itself is visible
         assert canned["answer"] in markdown
+        # no internal identifiers
         assert "karnak_001" not in markdown
         assert "doc_" not in markdown
-        assert "Not fully verified" in markdown
+        # no internal metadata surfaces in the UI
+        for forbidden in (
+            "Not fully verified",
+            "Unverified",
+            "Verified",
+            "From knowledge base",
+            "assembled directly",
+            "fallback response",
+            "Generated answer rejected",
+            "\u26a0\ufe0f",
+        ):
+            assert forbidden.lower() not in markdown.lower(), forbidden
 
     def test_missing_status_chip(self, monkeypatch):
         canned = {
-            "response_id": "r2", "query": "Q", "answer": "I couldn't find this information.",
+            "response_id": "r2", "query": "Q",
+            "answer": "This information is currently unavailable.",
             "language": "en", "status": "unavailable", "generation_mode": "fallback",
             "sources": [], "verification": {"status": "missing", "message": "not found."},
             "warnings": [],
@@ -472,7 +517,11 @@ class TestStreamlitRendering:
         at.run()
         assert not at.exception
         markdown = "\n".join(str(m.value) for m in at.markdown)
-        assert "Not in knowledge base" in markdown
+        # the missing-info answer renders as a normal answer: brief, natural,
+        # no fallback label, no internal status
+        assert "currently unavailable" in markdown.lower()
+        assert "knowledge base" not in markdown.lower()
+        assert "fallback" not in markdown.lower()
 
 
 # ----------------------------------------------------------------------
@@ -489,7 +538,10 @@ class TestArEnAttractionEquivalence:
         ar = qp.process("ما هي أفضل الأماكن للزيارة في الأقصر؟")
         assert en.intents == ["recommendation"] == ar.intents
         # the Arabic copula prefix "ما هي/ما هى" must not invent intents
-        assert qp.process("ما أهم الأماكن السياحية في الأقصر؟").intents == []
+        # ("أهم الأماكن" IS a recommendation phrase — AR/EN symmetry)
+        assert qp.process("ما أهم الأماكن السياحية في الأقصر؟").intents == [
+            "recommendation"
+        ]
         # fact questions: "definition" never rides along with another intent
         assert qp.process("ما هي ساعات زيارة معبد الكرنك؟").intents == ["hours"]
         assert qp.process(
@@ -535,9 +587,11 @@ class TestArEnAttractionEquivalence:
         # the "ما هي" prefix must not turn this into a definition answer
         assert "نبذة" not in answer
 
-    def test_single_entity_definition_keeps_hours(self, client):
-        # preserved behavior: a genuine one-place definition question may
-        # include its hours
+    def test_single_entity_definition_omits_unverified_hours(self, client):
+        # a genuine one-place definition question keeps its description;
+        # hours the KB marks unverified are silently omitted (they were not
+        # requested, and they must not be presented as confirmed facts)
         body = _answer(client, "What is the Karnak Temple?")
-        assert "Visiting hours" in body["answer"]
         assert "About" in body["answer"]
+        assert "Visiting hours" not in body["answer"]
+        assert "currently unavailable" not in body["answer"].lower()

@@ -4,13 +4,16 @@ When the LLM provider is unavailable, the user still gets a *readable,
 structured* answer built from the structured evidence — never a raw dump of
 retrieved documents, JSON, document IDs, or internal validation notes.
 
-Principles:
+Principles (user-facing output contract):
   - format only the fields relevant to the query intent
   - natural Arabic and English templates
   - missing facts are stated as unavailable (never invented)
-  - unverified/estimated facts keep their qualification
-  - conflicting values are explained, not silently resolved
-  - a short, calm notice states that full AI generation is unavailable
+  - unverified/estimated FACT values (prices, hours, coordinates) are NOT
+    presented as facts: a requested value that cannot be safely established
+    is stated as "currently unavailable" — with NO internal verification
+    talk, NO "unverified" labels, and NO fallback notices
+  - conflicting values are treated as unavailable (no arbitrary selection)
+  - the fallback answer is presented exactly like any other answer
 """
 
 from __future__ import annotations
@@ -31,21 +34,11 @@ from rag.schemas import (
 
 logger = logging.getLogger(__name__)
 
-# Quiet availability notice (kept stable so tests/integrations can rely on it).
-GENERATION_UNAVAILABLE_EN = (
-    "(Note: full AI-generated wording is temporarily unavailable, so this "
-    "answer was assembled directly from the knowledge base.)"
-)
-GENERATION_UNAVAILABLE_AR = (
-    "(ملاحظة: صياغة الإجابة بالذكاء الاصطناعي غير متوفرة حالياً، لذلك تم تجميع "
-    "هذه الإجابة مباشرة من قاعدة المعرفة.)"
-)
+_NO_INFO_EN = "This information is currently unavailable."
+_NO_INFO_AR = "هذه المعلومة غير متاحة حاليًا."
 
-_NO_INFO_EN = "I couldn't find this information in the knowledge base yet."
-_NO_INFO_AR = "لم أجد هذه المعلومة في قاعدة المعرفة حتى الآن."
-
-# Detects a generated answer that honestly reports the requested information
-# is absent from the knowledge base (the prompt mandates this statement).
+# Detects an answer that honestly reports the requested information is
+# unavailable (the prompt mandates a short "currently unavailable" sentence).
 # Used to label such requests status="unavailable" in Groq mode too —
 # the missing-info contract must be generation-mode independent.
 NO_INFO_ASSERTION_RE = re.compile(
@@ -55,48 +48,53 @@ NO_INFO_ASSERTION_RE = re.compile(
     r"|(?:not available|not found|couldn't find|cannot find|can't find|"
     r"no information|does not contain|doesn't contain)[^.!?\n]{0,120}?"
     r"knowledge base"
+    r"|currently unavailable"
+    r"|غير متاح(?:ة|ه)[^.!?\n]{0,40}?حالي"
     r"|قاعدة المعرفة[^.!?؟\n]{0,120}?(?:لا توجد|غير موجودة|غير متوفر|لم أجد|"
     r"لا تحتوي|لا يحتوي)"
-    r"|(?:لم أجد|لا توجد|غير موجودة|غير متوفر)[^.!?؟\n]{0,120}?قاعدة المعرفة",
+    r"|(?:لم أجد|لا توجد|غير موجودة|غير متوفر)[^.!?\n]{0,120}?قاعدة المعرفة",
+    re.IGNORECASE,
+)
+
+# Unavailability phrases — sentences containing these are "missing-value"
+# statements, not data.
+_UNAVAIL_PHRASE_RE = re.compile(
+    r"currently unavailable|unavailable|not available|not found|no information"
+    r"|couldn't find|cannot find|can't find"
+    r"|غير متاحة|غير متوفر|لم أجد",
     re.IGNORECASE,
 )
 
 # Guard: an answer that actually delivers field data (numbers, prices, hours)
 # is a partial/success answer even if it also mentions something being
 # "not available" — only data-free answers may be labelled unavailable.
+# Bare field labels ("Opening hours are ...") are not data; only actual
+# values (currency amounts, times, structured headings) count.
 _ANSWER_HAS_DATA_RE = re.compile(
-    r"\d+\s*(?:EGP|جنيه)|(?:EGP|جنيه)\s*\d+"
-    r"|ticket prices|visiting hours|opening hours|ساعات الزيارة|أسعار التذاكر"
+    r"\d+\s*(?:EGP|جنيه|USD)|(?:EGP|جنيه|USD)\s*\d+"
+    r"|\d{1,2}[:：]\d{2}"
     r"|\*\*(?:place|المكان)\b|\bAbout\b|نبذة",
     re.IGNORECASE,
 )
 
 
+def _strip_unavailable_sentences(text: str) -> str:
+    """Remove every sentence/line that only reports missing information."""
+    # split on sentence boundaries AND line breaks (fallback answers are
+    # line-oriented: "Ticket prices: currently unavailable." sits on its
+    # own line inside an otherwise data-bearing answer)
+    sentences = re.split(r"(?<=[.!?؟])\s+|\n+", text)
+    kept = [s for s in sentences if not _UNAVAIL_PHRASE_RE.search(s)]
+    return " ".join(kept)
+
+
 def asserts_missing_info(answer: str) -> bool:
     """True when the answer states the info is missing AND carries no data."""
-    return bool(
-        NO_INFO_ASSERTION_RE.search(answer or "")
-        and not _ANSWER_HAS_DATA_RE.search(answer or "")
-    )
-
-_UNVERIFIED_EN = (
-    "This information comes from the knowledge base but has not been fully "
-    "verified yet, so please double-check before relying on it."
-)
-_UNVERIFIED_AR = (
-    "هذه المعلومة موجودة في قاعدة المعرفة، لكنها لم تُتحقق منها بشكل كافٍ، "
-    "فيُفضّل التأكد منها قبل الاعتماد عليها."
-)
-_CONFLICTING_EN = (
-    "The available sources contain conflicting values for this information, "
-    "so no single figure is shown as final."
-)
-_CONFLICTING_AR = (
-    "المصادر المتاحة تحتوي على قيم متضاربة لهذه المعلومة، لذلك لم يتم اختيار "
-    "قيمة واحدة كنهائية."
-)
-_UNAVAILABLE_EN = "This information is not available in the knowledge base."
-_UNAVAILABLE_AR = "المعلومة دي مش متوفرة حاليًا في قاعدة البيانات."
+    text = answer or ""
+    if not NO_INFO_ASSERTION_RE.search(text):
+        return False
+    remainder = _strip_unavailable_sentences(text)
+    return not _ANSWER_HAS_DATA_RE.search(remainder)
 
 _LABELS = {
     "en": {
@@ -152,17 +150,44 @@ def _lookup_place_name(
     place_id: str,
     lang: str = "en",
     structured: Optional[StructuredRetriever] = None,
-) -> str:
-    """Human place name for an itinerary stop (language-correct, no IDs)."""
+) -> Optional[str]:
+    """Human place name for an itinerary stop (language-correct, no IDs).
+
+    Returns ``None`` when the stop cannot be resolved to a place — the
+    caller omits the stop instead of ever rendering an internal record ID
+    in a user-facing answer.
+    """
     pid = str(place_id)
     place = places.get(pid)
     if place is None and structured is not None:
         place = structured.kb.places.get(pid)
     if place is None:
-        return pid  # last resort; should not happen with the enhanced KB
+        return None
     if lang == "ar" and place.name_arabic:
         return place.name_arabic
     return place.name
+
+
+# Arabic ordinal day headings ("اليوم الأول" … "اليوم العاشر"); beyond 10
+# the numeral itself is used ("اليوم 11") — no fabricated ordinals.
+_AR_DAY_ORDINALS = {
+    1: "الأول", 2: "الثاني", 3: "الثالث", 4: "الرابع", 5: "الخامس",
+    6: "السادس", 7: "السابع", 8: "الثامن", 9: "التاسع", 10: "العاشر",
+}
+
+
+def _day_heading(day_number: int, lang: str, day_title: str = "") -> str:
+    """Markdown heading for one itinerary day (language-correct).
+
+    English: "### Day 2 — West Bank" (KB day title). Arabic: "### اليوم
+    الثاني" — the KB day titles are English-only, so the title is omitted
+    in Arabic answers instead of mixing scripts.
+    """
+    if lang == "ar":
+        label = _AR_DAY_ORDINALS.get(day_number, str(day_number))
+        return f"### اليوم {label}"
+    title = f" — {day_title}" if day_title else ""
+    return f"### Day {day_number}{title}"
 
 
 class FallbackResponder:
@@ -194,12 +219,17 @@ class FallbackResponder:
         }
         intent = retrieval.intent if retrieval is not None else None
         all_intents = list(getattr(retrieval, "intents", []) or []) if retrieval is not None else []
+        requested_days = (
+            (retrieval.detected_entities or {}).get("days") if retrieval is not None else None
+        )
 
         if intent == "itinerary":
             # itinerary queries: the plan itself (+ city/rules), NOT a dump
             # of every retrieved place's prices and hours
             for extra in context.structured_extras:
-                section = self._format_extra(extra, lang, places)
+                section = self._format_extra(
+                    extra, lang, places, requested_days=requested_days
+                )
                 if section:
                     sections.append(section)
         else:
@@ -216,27 +246,24 @@ class FallbackResponder:
 
             # 2) non-place records (cities, activities, itineraries, rules)
             for extra in context.structured_extras:
-                section = self._format_extra(extra, lang, places)
+                section = self._format_extra(
+                    extra, lang, places, requested_days=requested_days
+                )
                 if section:
                     sections.append(section)
 
         # 3) no structured evidence at all -> honest "not available"
         if not sections:
             # Nothing found: a short natural statement is the whole answer.
-            # No availability notice (nothing was "assembled") and no
-            # verification qualification (nothing exists to qualify).
+            # No internal notices (nothing was "assembled", nothing to
+            # qualify) — Case E: the fallback answer is a normal answer.
             return _NO_INFO_AR if lang == "ar" else _NO_INFO_EN
 
-        # 4) one calm notice that full generation is offline (not an error dump)
-        notice = GENERATION_UNAVAILABLE_AR if lang == "ar" else GENERATION_UNAVAILABLE_EN
-
-        # 5) verification qualification — once, at the end
-        qualification = self._verification_qualification(context, lang)
-        if qualification:
-            sections.append(qualification)
-
-        text = "\n\n".join(sections)
-        return f"{text}\n\n{notice}"
+        # Case E: the fallback answer is presented exactly like any other
+        # answer — no "assembled from the knowledge base" notice and no
+        # verification qualification. Unverified/estimated/conflicting
+        # FACT values are already excluded inline by _render_field.
+        return "\n\n".join(sections)
 
     # ------------------------------------------------------------------
     def _format_place(
@@ -298,9 +325,14 @@ class FallbackResponder:
                 and "opening_hours" not in fields
             ):
                 lookup = self.structured.get_field(place.place_id, "opening_hours")
-                rendered = self._render_hours(lookup.value, lang) if (
-                    lookup.status not in (VerificationStatus.MISSING, VerificationStatus.UNAVAILABLE)
-                ) else None
+                # auto-added hours must be a confirmed value: an unverified
+                # one is omitted (the user did not explicitly request hours,
+                # so no "unavailable" line is needed)
+                rendered = (
+                    self._render_hours(lookup.value, lang)
+                    if lookup.status == VerificationStatus.VERIFIED
+                    else None
+                )
                 if rendered:
                     lines.append(rendered)
 
@@ -325,11 +357,15 @@ class FallbackResponder:
         status = lookup.status
         value = lookup.value
         not_available = (
-            "غير متوفر في قاعدة المعرفة." if lang == "ar"
-            else "not available in the knowledge base."
+            "غير متاحة حاليًا." if lang == "ar" else "currently unavailable."
         )
 
         def _label_for(field: str) -> str:
+            # the field aliases map onto the human labels
+            if field in ("opening_hours", "hours"):
+                field = "hours"
+            elif field in ("prices", "price", "ticket_price", "ticket_prices"):
+                field = "prices"
             return L.get(field, field.replace("_", " ").capitalize())
 
         def _human_value(v: Any) -> Optional[str]:
@@ -349,6 +385,16 @@ class FallbackResponder:
         if status in (VerificationStatus.MISSING, VerificationStatus.UNAVAILABLE):
             return f"{_label_for(field)}: {not_available}"
 
+        # Case B: UNVERIFIED or ESTIMATED fact values are never presented as
+        # confirmed facts. If the user explicitly requested the value, say it
+        # is unavailable — with no internal verification talk. (Applies to
+        # fact fields only: descriptive content may still be shown.)
+        _FACT_FIELDS = ("prices", "opening_hours", "coordinates")
+        if field in _FACT_FIELDS and status in (
+            VerificationStatus.UNVERIFIED, VerificationStatus.ESTIMATED
+        ):
+            return f"{_label_for(field)}: {not_available}"
+
         if field == "prices":
             return self._render_prices(value, lang)
         if field == "opening_hours":
@@ -359,30 +405,31 @@ class FallbackResponder:
                 lat, lng = value.get("latitude"), value.get("longitude")
             if lat is None or lng is None:
                 return f"{_label_for(field)}: {not_available}"
-            line = f"{L['location']}: lat {lat}, lng {lng}"
-            if status == VerificationStatus.ESTIMATED:
-                line += " (approximate)" if lang == "en" else " (تقريبية)"
-            return line
+            return f"{L['location']}: lat {lat}, lng {lng}"
 
-        # generic fallback: human-readable value or honest omission
+        # generic fallback: human-readable value (descriptive content is
+        # shown without verification labels)
         human = _human_value(value)
         if not human:
             return f"{_label_for(field)}: {not_available}"
-        line = f"{_label_for(field)}: {human}"
-        if status == VerificationStatus.UNVERIFIED:
-            line += " (unverified)" if lang == "en" else " (غير موثق)"
-        return line
+        return f"{_label_for(field)}: {human}"
 
     @staticmethod
     def _render_prices(prices: Any, lang: str) -> Optional[str]:
         if not isinstance(prices, dict):
             return None
+        L = _LABELS[lang]
+        # Case C: conflicting values are never arbitrarily resolved and never
+        # shown with a long conflict warning — the field is simply unavailable.
+        if prices.get("confidence") in ("conflicting",):
+            return f"{L['prices']}: " + (
+                "غير متاحة حاليًا." if lang == "ar" else "currently unavailable."
+            )
         currency = prices.get("currency", "EGP")
         tickets = prices.get("tickets")
         if not isinstance(tickets, list) or not tickets:
             return None
         labels = _TICKET_LABELS_AR if lang == "ar" else _TICKET_LABELS_EN
-        L = _LABELS[lang]
         lines = [f"{L['prices']}:"]
         for ticket in tickets:
             name = ticket.get("name")
@@ -397,11 +444,6 @@ class FallbackResponder:
             lines.append(prefix + ("، ".join(parts) if lang == "ar" else "; ".join(parts)))
         if len(lines) == 1:
             return None
-        # conflicting confidence note
-        if prices.get("confidence") in ("conflicting",):
-            lines.append(
-                f"_{_CONFLICTING_AR if lang == 'ar' else _CONFLICTING_EN}_"
-            )
         return "\n".join(lines)
 
     @staticmethod
@@ -425,7 +467,8 @@ class FallbackResponder:
 
     # ------------------------------------------------------------------
     def _format_extra(
-        self, extra: StructuredRecord, lang: str, places: Dict[str, StructuredPlace]
+        self, extra: StructuredRecord, lang: str, places: Dict[str, StructuredPlace],
+        requested_days: Optional[int] = None,
     ) -> Optional[str]:
         L = _LABELS[lang]
         data = extra.data
@@ -458,17 +501,32 @@ class FallbackResponder:
             lines = [f"**{L['suggested_plan']}: {title}**"]
             days = data.get("days") or []
             expected_days = data.get("days_count")
-            # ALWAYS render the complete itinerary: every day of the record,
-            # each with all of its stops (never truncated mid-itinerary).
-            for day in days:
-                day_title = day.get("title", "")
-                if lang == "ar" and day.get("title_ar"):
-                    day_title = day["title_ar"]
-                day_lines = [f"{L['days']} {day.get('day')} — {day_title}"]
+            # Render EXACTLY the requested number of days when the user asked
+            # for a specific trip length (one coherent plan — never several
+            # unrelated itineraries); otherwise render the complete record.
+            if requested_days and len(days) > requested_days:
+                shown = days[:requested_days]
+            else:
+                shown = days
+            for index, day in enumerate(shown, start=1):
+                try:
+                    day_number = int(day.get("day"))
+                except (TypeError, ValueError):
+                    day_number = index  # positional fallback (never None)
+                day_lines = [
+                    _day_heading(
+                        day_number, lang,
+                        (day.get("title") or "") if lang == "en" else "",
+                    )
+                ]
                 for stop in day.get("stops") or []:
                     stop_name = _lookup_place_name(
                         places, stop.get("place_id", ""), lang, self.structured
                     )
+                    if not stop_name:
+                        # unresolvable stop: omit it rather than leak an
+                        # internal record ID into the user-facing answer
+                        continue
                     day_lines.append(
                         f"- {L['time']} {stop.get('suggested_time', '')} — "
                         f"{L['stop']}: {stop_name}"
@@ -476,23 +534,55 @@ class FallbackResponder:
                 if day.get("tip"):
                     day_lines.append(f"- {L['tip']}: {day['tip']}")
                 lines.append("\n".join(day_lines))
-            # report an honest limitation if the record itself is incomplete
-            if expected_days and len(days) < int(expected_days):
+            # requested days > days the evidence can fill: KEEP the requested
+            # day headings and state the limitation naturally inside each
+            # empty day — never invent attractions just to fill them
+            covered = len(shown)
+            if requested_days and covered < requested_days:
+                for day_number in range(covered + 1, requested_days + 1):
+                    empty_note = (
+                        "لا تتوفر تفاصيل كافية لبرنامج هذا اليوم، فيمكنك "
+                        "تخصيصه للراحة أو لإعادة زيارة معلم أعجبك أو "
+                        "لاستكشاف المدينة على مهلك."
+                        if lang == "ar"
+                        else "No further day details are available, so feel "
+                        "free to use it for rest, a relaxed revisit of a "
+                        "highlight above, or exploring the city at your "
+                        "own pace."
+                    )
+                    lines.append(
+                        "\n".join([
+                            _day_heading(day_number, lang),
+                            f"- _{empty_note}_",
+                        ])
+                    )
+            elif (
+                expected_days
+                and len(days) < int(expected_days)
+                and not requested_days
+            ):
                 limitation = (
-                    f"خطة السجل تغطي {len(days)} يوم من أصل {expected_days}."
+                    f"هذه الخطة تغطي {len(days)} يومًا."
                     if lang == "ar"
-                    else f"The itinerary record covers {len(days)} of {expected_days} days."
+                    else f"This plan covers {len(days)} days."
                 )
                 lines.append(f"_{limitation}_")
+            elif requested_days and len(days) > requested_days:
+                # the shown plan is the first part of a longer itinerary —
+                # say so briefly instead of claiming an exact-length match
+                adaptation = (
+                    f"هذه الخطة تغطي أول {requested_days} أيام من برنامج "
+                    f"مدته {len(days)} أيام."
+                    if lang == "ar"
+                    else f"These {requested_days} days are the first part of "
+                    f"a {len(days)}-day itinerary."
+                )
+                lines.append(f"_{adaptation}_")
             # family suitability note ONLY when the record itself supports it
             interests = [str(i).lower() for i in (data.get("interests") or [])]
             title_l = title.lower() if title else ""
             if "famil" in title_l or any("famil" in i for i in interests):
-                lines.append(
-                    "مناسبة للعائلات حسب قاعدة المعرفة."
-                    if lang == "ar"
-                    else "Family-friendly according to the knowledge base."
-                )
+                lines.append("مناسبة للعائلات." if lang == "ar" else "Family-friendly.")
             return "\n\n".join(lines)
 
         if extra.record_type == "planning_rule":
@@ -509,42 +599,13 @@ class FallbackResponder:
         if extra.record_type == "transportation_route":
             if data.get("status") == "unavailable":
                 note = data.get("note") or ""
-                base = _UNAVAILABLE_AR if lang == "ar" else _UNAVAILABLE_EN
+                base = (
+                    "Transportation information is currently unavailable."
+                    if lang == "en" else "معلومات المواصلات غير متاحة حاليًا."
+                )
                 return f"{base}" + (f"\n_{note}_" if note else "")
             return None
 
-        return None
-
-    # ------------------------------------------------------------------
-    def _verification_qualification(
-        self, context: RetrievedContext, lang: str
-    ) -> Optional[str]:
-        """Single, deduplicated qualification for unverified/conflicting info.
-
-        When part of the evidence is verified and part is not, the wording
-        reflects the mixed situation instead of a blanket "unverified".
-        """
-        statuses = {
-            p.verification.status for p in context.structured_records
-        }
-        statuses |= {e.verification.status for e in context.structured_extras}
-        if VerificationStatus.UNAVAILABLE in statuses:
-            return None  # already communicated inline
-        has_verified = VerificationStatus.VERIFIED in statuses
-        has_uncertain = bool(
-            statuses & {VerificationStatus.UNVERIFIED, VerificationStatus.ESTIMATED}
-        )
-        if has_verified and has_uncertain:
-            return (
-                "جزء من هذه المعلومات موثق جيداً، وأجزاء أخرى لم يتم التحقق "
-                "منها بشكل كافٍ، فيُفضّل التأكد قبل الاعتماد عليها."
-                if lang == "ar"
-                else "Part of this information is well-sourced; other parts "
-                "have not been fully verified yet, so please double-check "
-                "before relying on it."
-            )
-        if has_uncertain:
-            return _UNVERIFIED_AR if lang == "ar" else _UNVERIFIED_EN
         return None
 
     # ------------------------------------------------------------------

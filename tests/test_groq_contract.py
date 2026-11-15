@@ -182,8 +182,8 @@ class TestPromptListingScope:
         assert "Do NOT add prices, opening hours" in SYSTEM_PROMPT_EN
 
     def test_arabic_prompt_has_listing_rule(self):
-        assert "أفضل الأماكن" in SYSTEM_PROMPT_AR
-        assert "لا تُضف أسعاراً" in SYSTEM_PROMPT_AR
+        assert "أفضل الأماكن للزيارة" in SYSTEM_PROMPT_AR
+        assert "لا تُضف أسعارًا" in SYSTEM_PROMPT_AR
 
 
 # ----------------------------------------------------------------------
@@ -193,23 +193,30 @@ class TestMissingInfoStatusWithGroq:
     def test_asserts_missing_info_detector(self):
         from rag.generation.fallback import asserts_missing_info
 
-        # honest missing-info answers (either language) are detected
+        # honest missing-info answers (either language, either phrasing
+        # generation) are detected
         assert asserts_missing_info(
             "The knowledge base does not contain the price of a Nile "
             "dinner cruise ticket for children."
         )
         assert asserts_missing_info(
+            "Ticket prices for a Nile dinner cruise for children are "
+            "currently unavailable."
+        )
+        assert asserts_missing_info("This information is currently unavailable.")
+        assert asserts_missing_info(
             "لم أجد هذه المعلومة في قاعدة المعرفة حتى الآن."
         )
+        assert asserts_missing_info("هذه المعلومة غير متاحة حاليًا.")
+        assert asserts_missing_info("ساعات الزيارة: غير متاحة حاليًا.")
         # a data-carrying answer that mentions a missing secondary field
         # stays partial/success (guard against false positives)
         assert not asserts_missing_info(
             "**Ticket prices:** Foreign adult: 1000 EGP. Opening hours are "
-            "not available in the knowledge base."
+            "currently unavailable."
         )
         assert not asserts_missing_info(
-            "ساعات الزيارة: 07:00-17:00. أسعار التذاكر غير متوفرة في قاعدة "
-            "المعرفة."
+            "ساعات الزيارة: 07:00-17:00. أسعار التذاكر غير متاحة حاليًا."
         )
         # a normal successful answer is not flagged
         assert not asserts_missing_info(
@@ -218,6 +225,22 @@ class TestMissingInfoStatusWithGroq:
         )
 
     def test_groq_missing_info_marked_unavailable(self, mini_kb_file, tmp_path_factory):
+        groq = CannedGroq({
+            "nile dinner cruise": (
+                "Ticket prices for a Nile dinner cruise for children are "
+                "currently unavailable."
+            ),
+        })
+        client = _build_client(groq, mini_kb_file, tmp_path_factory)
+        body = _answer(
+            client, "What is the price of a Nile dinner cruise ticket for children?"
+        )
+        assert body["status"] == "unavailable"
+        assert body["sources"] == []
+        assert body["verification"]["status"] == "missing"
+
+    def test_groq_legacy_missing_phrasing_still_detected(self, mini_kb_file, tmp_path_factory):
+        """Older phrasing ('not in the knowledge base') is still labelled."""
         groq = CannedGroq({
             "nile dinner cruise": (
                 "The knowledge base does not contain the price of a Nile "
@@ -229,8 +252,6 @@ class TestMissingInfoStatusWithGroq:
             client, "What is the price of a Nile dinner cruise ticket for children?"
         )
         assert body["status"] == "unavailable"
-        assert body["sources"] == []
-        assert body["verification"]["status"] == "missing"
 
     def test_groq_answered_question_still_success(self, mini_kb_file, tmp_path_factory):
         groq = CannedGroq({

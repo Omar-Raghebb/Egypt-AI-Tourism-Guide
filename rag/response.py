@@ -12,10 +12,13 @@ Strict separation between internal RAG structures and the user contract:
 
 Rules:
   - ``answer`` is the ONLY natural-language field; it never contains raw
-    JSON, document IDs, scores, or internal machinery
+    JSON, document IDs, scores, internal machinery, verification labels,
+    or fallback notices (the user-facing presentation contract: Case B
+    values are stated as unavailable, never qualified with "unverified")
   - ``sources`` are friendly references (place names + KB source)
-  - ``verification`` summarizes reliability in plain language
-  - ``warnings`` are user-relevant notes only (no debug codes, no stack traces)
+  - ``verification`` and ``warnings`` summarize reliability for internal
+    consumers (Agentic layer / diagnostics) — the Streamlit frontend
+    intentionally does NOT render them
 """
 
 from __future__ import annotations
@@ -275,40 +278,47 @@ def _user_warnings(
     return out
 
 
+
 def build_user_answer(response: RAGResponse) -> Dict:
     """Convert the internal RAGResponse into the user-facing contract dict."""
+
     status = response.status
+
     has_structured_evidence = response.context is not None and bool(
-        response.context.structured_records or response.context.structured_extras
+        response.context.structured_records
+        or response.context.structured_extras
     )
+
     if response.generated_by == "fallback" and status == "success":
         # fallback without structured evidence -> clearly unavailable
         if not has_structured_evidence:
             status = "unavailable"
 
     if status == "unavailable":
-        # nothing found: no sources, no warnings, and the verification
-        # block must NOT label the (absent) information "unverified"
         verification = _summarize_verification(None, response.language)
-        warnings: List[str] = []
     else:
-        verification = _summarize_verification(response.context, response.language)
-        warnings = _user_warnings(
-            response.warnings + response.verification_flags,
-            response.language,
-            response.generated_by,
+        verification = _summarize_verification(
+            response.context,
+            response.language
         )
+
+    # Hide verification warnings from the user-facing response
+    warnings: List[str] = []
+
     return {
         "response_id": response.response_id,
         "query": response.query,
         "answer": response.answer,
         "language": response.language,
         "status": status,
-        "generation_mode": response.generated_by,          # groq | fallback
+        "generation_mode": response.generated_by,
         "sources": [] if status == "unavailable" else _friendly_sources(
-            response.context, response.answer, response.language,
+            response.context,
+            response.answer,
+            response.language,
             generated_by=response.generated_by,
         ),
         "verification": verification,
         "warnings": warnings,
     }
+

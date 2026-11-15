@@ -179,7 +179,7 @@ class TestAutomaticDetection:
         assert body["language"] == "ar"
         assert body["sources"] == []
         assert AR_CHARS.search(body["answer"])
-        assert "لم أجد" in body["answer"] or "قاعدة المعرفة" in body["answer"]
+        assert "غير متاحة حاليًا" in body["answer"]
 
     def test_16_english_unavailable_english_message(self, client_fallback):
         body = _answer(
@@ -187,7 +187,7 @@ class TestAutomaticDetection:
         )
         assert body["status"] == "unavailable"
         assert body["language"] == "en"
-        assert "couldn't find this information" in body["answer"]
+        assert "currently unavailable" in body["answer"]
 
     def test_17_arabic_verification_arabic(self, client_fallback):
         body = _answer(client_fallback, "ما هي ساعات زيارة معبد الكرنك؟")

@@ -21,8 +21,6 @@ from rag.context_builder import ContextBuilder
 from rag.embeddings import get_embedder
 from rag.generation.fallback import (
     FallbackResponder,
-    _NO_INFO_AR,
-    _NO_INFO_EN,
     asserts_missing_info,
 )
 from rag.generation.groq_client import GroqClient
@@ -170,13 +168,15 @@ class RAGPipeline:
         context = self.context_builder.build(retrieval)
         lang = language or detect_language(query)
 
-        # The deterministic responder short-circuits to a "not found" message
-        # exactly when the requested information does not exist in the KB.
-        # That decision is generation-mode independent: whether the final text
-        # comes from Groq or the fallback, a missing-info request must report
-        # status "unavailable" (never "success" with empty sources).
+        # The deterministic responder short-circuits to a "not available"
+        # message exactly when the requested information does not exist in
+        # the KB. That decision is generation-mode independent: whether the
+        # final text comes from Groq or the fallback, a missing-info request
+        # must report status "unavailable" (never "success" with empty
+        # sources). asserts_missing_info's data-free guard keeps genuine
+        # partial answers (price known, hours missing) satisfiable.
         fallback_probe = self.fallback.respond(context, lang, retrieval=retrieval)
-        request_unsatisfiable = fallback_probe.strip() in (_NO_INFO_EN, _NO_INFO_AR)
+        request_unsatisfiable = asserts_missing_info(fallback_probe)
 
         warnings: List[str] = []
         status = "success"
@@ -192,7 +192,10 @@ class RAGPipeline:
             )
 
         try:
-            messages = build_messages(context, query, lang)
+            messages = build_messages(
+                context, query, lang,
+                requested_days=(retrieval.detected_entities or {}).get("days"),
+            )
             answer_text = self.groq.generate(messages)
         except Exception as exc:  # noqa: BLE001 - any generation failure falls back
             logger.error("Generation failed (%s); using fallback", exc)

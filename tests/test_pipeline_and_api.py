@@ -100,7 +100,7 @@ class TestPipelineIntegration:
             response = pipeline_module.answer("What are the opening hours?")
             assert response.generated_by == "fallback"
             # no structured evidence for "opening hours" alone -> not-found
-            assert "couldn't find this information" in response.answer
+            assert "currently unavailable" in response.answer.lower()
             assert response.context is not None
         finally:
             pipeline_module.groq.is_available = real_available

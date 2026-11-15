@@ -242,12 +242,13 @@ class TestFallbackReadability:
             json={"query": "What is the ticket price of the Giza Pyramids?"},
         ).json()
         answer = body["answer"]
-        # structured, labeled answer with the price from the evidence
+        # conflicting evidence (Case C) -> no single value shown as fact
         assert "Ticket prices" in answer
-        assert "1000" in answer
-        # no raw evidence blobs
+        assert "currently unavailable" in answer.lower()
+        assert "1000" not in answer
+        # no raw evidence blobs, no internal notices
         assert "STRUCTURED EVIDENCE" not in answer
-        assert answer.count("(Note:") <= 1
+        assert "(Note:" not in answer
 
     def test_fallback_arabic_natural(self, client_fallback):
         body = client_fallback.post(
@@ -257,7 +258,8 @@ class TestFallbackReadability:
         assert body["language"] == "ar"
         answer = body["answer"]
         assert "أسعار التذاكر" in answer
-        assert "قاعدة المعرفة" in answer
+        assert "غير متاحة حاليًا" in answer
+        assert "قاعدة المعرفة" not in answer
 
     def test_missing_info_communicated_naturally(self, client_fallback):
         body = client_fallback.post(
@@ -267,7 +269,7 @@ class TestFallbackReadability:
         answer = body["answer"]
         # either answered from evidence or a natural not-available statement
         assert (
-            "couldn't find this information" in answer
+            "currently unavailable" in answer.lower()
             or "Visiting hours" in answer
         )
         assert "Traceback" not in answer
@@ -334,4 +336,4 @@ class TestGroundedness:
         # partial; a truly empty retrieval must report "unavailable"
         assert body["status"] in ("success", "partial", "unavailable")
         if body["status"] == "unavailable":
-            assert "couldn't find" in body["answer"] or "غير متوفرة" in body["answer"]
+            assert "currently unavailable" in body["answer"] or "غير متاحة" in body["answer"]
